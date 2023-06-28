@@ -201,7 +201,7 @@ class BioZorro(nn.Module):
 
         # construct all tokens
 
-        audio_tokens, fusion_tokens, video_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'), (audio_tokens, fusion_tokens, video_tokens))
+        rna_tokens, fusion_tokens, atac_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'), (rna_tokens, fusion_tokens, atac_tokens))
 
         tokens, ps = pack((
             rna_tokens,
@@ -212,9 +212,9 @@ class BioZorro(nn.Module):
         # construct mask (thus zorro)
 
         token_types = torch.tensor(list((
-            *((TokenTypes.RNA.value,) * audio_tokens.shape[-2]),
+            *((TokenTypes.RNA.value,) * rna_tokens.shape[-2]),
             *((TokenTypes.FUSION.value,) * fusion_tokens.shape[-2]),
-            *((TokenTypes.ATAC.value,) * video_tokens.shape[-2]),
+            *((TokenTypes.ATAC.value,) * atac_tokens.shape[-2]),
         )), device = device, dtype = torch.long)
 
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
