@@ -2,12 +2,17 @@ from enum import Enum
 import functools
 from functools import wraps
 
+from dataclasses import dataclass, field
+
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 
 from einops import rearrange, repeat, pack, unpack
 #from einops.layers.torch import Rearrange
+
+from torchmultimodal.utils.common import ModelOutput
+from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature, ContrastiveLossOutput
 
 #from beartype import beartype
 from beartype.typing import Tuple, Optional, Union
@@ -131,7 +136,44 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+@dataclass
+class BioZorroPretrainingLossesCollection(modelOutput):
+    contrastive_loss= None
+    fusion_loss_rna = None
+    fusion_loss_atac = None
+
+@dataclass
+class BioZorroPretrainingLossOutput(ModelOutput):
+    losses = field( default_factory=BioZorroPretrainingLossesCollection)
+    rna_output = None
+    atac_output = None
+    fusion_output = None
+    #global_output = None
+
+class BioZorroPretrainingLoss(nn.Module):
+    def __init__(
+            self,
+            ):
+        super().__init__()
+        self.contrastive_loss =  ContrastiveLossWithTemperature()
+        self.fusion_loss_rna = ContrastiveLossWithTemperature()
+        self.fusion_loss_atac = ConstrastiveLossWithTemperature()
+    def forward(
+            self,
+            pooled_tokens
+            ):
+        outputs = BioZorroPretrainingLossOutput()
+        outputs.rna_output = pooled_tokens[:,0,:].squeeze()
+        outputs.atac_output = pooled_tokens[:,1,:].squeeze()
+        outputs.fusion_output = pooled_tokens[:,2,:].squeeze()
+        outputs.losses.contrastive_loss = self.contrastive_loss(outputs.rna_output, outputs.atac_output)
+        outputs.losses.fusion_loss_rna = self.fusion_loss_rna(outputs.rna, outputs.fusion_output)
+        outputs.losses.fusion_loss_atac = self.fusion_loss_atac(outputs.atac, outputs.fusion_output)
+        return outputs
+        
+
 # main class
+
 
 class BioZorro(nn.Module):
     def __init__(
@@ -145,8 +187,10 @@ class BioZorro(nn.Module):
         ff_mult = 4,
         num_fusion_tokens = 16,
         return_token_types: Tuple[TokenTypes] = (TokenTypes.RNA, TokenTypes.ATAC, TokenTypes.FUSION)
-    ):
+        loss = BioZorroPretrainingLoss
+        ):
         super().__init__()
+        self.loss = loss
         self.max_return_tokens = len(return_token_types)
 
         self.return_token_types = return_token_types
@@ -258,5 +302,5 @@ class BioZorro(nn.Module):
 
         pooled_tokens = self.attn_pool(return_tokens, context = tokens, attn_mask = pool_mask) + return_tokens
 
-        return pooled_tokens
+        return self.loss(pooled_tokens)
 
