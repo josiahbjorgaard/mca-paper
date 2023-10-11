@@ -9,26 +9,30 @@ import torch.nn.functional as F
 from torch import nn, einsum, Tensor
 
 from einops import rearrange, repeat, pack, unpack
-#from einops.layers.torch import Rearrange
+# from einops.layers.torch import Rearrange
 
 from torchmultimodal.utils.common import ModelOutput
-from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature, ContrastiveLossOutput
+from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature, \
+    ContrastiveLossOutput
 
-#from beartype import beartype
+# from beartype import beartype
 from beartype.typing import Tuple, Optional, Union
+
 
 # constants
 
 class TokenTypes(Enum):
-    RNA = 0  # -> AUDIO
-    ATAC = 1  # -> VIDEO
+    SPLICED = 0  # -> AUDIO
+    UNSPLICED = 1  # -> VIDEO
     FUSION = 2
     GLOBAL = 3
+
 
 # functions
 
 def exists(val):
     return val is not None
+
 
 def default(*args):
     for arg in args:
@@ -36,22 +40,28 @@ def default(*args):
             return arg
     return None
 
+
 def round_down_nearest_multiple(n, divisor):
     return n // divisor * divisor
+
 
 def pair(t):
     return (t, t) if not isinstance(t, tuple) else t
 
+
 def cum_mul(it):
     return functools.reduce(lambda x, y: x * y, it, 1)
 
+
 def divisible_by(numer, denom):
     return (numer % denom) == 0
+
 
 # decorators
 
 def once(fn):
     called = False
+
     @wraps(fn)
     def inner(x):
         nonlocal called
@@ -59,9 +69,12 @@ def once(fn):
             return
         called = True
         return fn(x)
+
     return inner
 
+
 print_once = once(print)
+
 
 # bias-less layernorm
 
@@ -74,30 +87,33 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
 
+
 # geglu feedforward
 
 class GEGLU(nn.Module):
     def forward(self, x):
-        x, gate = x.chunk(2, dim = -1)
+        x, gate = x.chunk(2, dim=-1)
         return F.gelu(gate) * x
 
-def FeedForward(dim, mult = 4):
+
+def FeedForward(dim, mult=4):
     inner_dim = int(dim * mult * 2 / 3)
     return nn.Sequential(
         LayerNorm(dim),
-        nn.Linear(dim, inner_dim * 2, bias = False),
+        nn.Linear(dim, inner_dim * 2, bias=False),
         GEGLU(),
-        nn.Linear(inner_dim, dim, bias = False)
+        nn.Linear(inner_dim, dim, bias=False)
     )
+
 
 # attention
 
 class Attention(nn.Module):
     def __init__(
-        self,
-        dim,
-        dim_head = 64,
-        heads = 8
+            self,
+            dim,
+            dim_head=64,
+            heads=8
     ):
         super().__init__()
         self.scale = dim_head ** -0.5
@@ -106,22 +122,22 @@ class Attention(nn.Module):
 
         self.norm = LayerNorm(dim)
 
-        self.to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
-        self.to_out = nn.Linear(inner_dim, dim, bias = False)
+        self.to_q = nn.Linear(dim, inner_dim, bias=False)
+        self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
+        self.to_out = nn.Linear(inner_dim, dim, bias=False)
 
     def forward(
-        self,
-        x,
-        context = None,
-        attn_mask = None
+            self,
+            x,
+            context=None,
+            attn_mask=None
     ):
         x = self.norm(x)
         kv_x = default(context, x)
 
-        q, k, v = (self.to_q(x), *self.to_kv(kv_x).chunk(2, dim = -1))
+        q, k, v = (self.to_q(x), *self.to_kv(kv_x).chunk(2, dim=-1))
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), (q, k, v))
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), (q, k, v))
 
         q = q * self.scale
         sim = einsum('b h i d, b h j d -> b h i j', q, k)
@@ -129,88 +145,102 @@ class Attention(nn.Module):
         if exists(attn_mask):
             sim = sim.masked_fill(~attn_mask, -torch.finfo(sim.dtype).max)
 
-        attn = sim.softmax(dim = -1)
+        attn = sim.softmax(dim=-1)
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
 
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+class BioZorroLayer(nn.Module):
+    def __init__(self, dim, dim_head, heads, ff_mult):
+        super().__init__()
+        layer = nn.ModuleList([
+                        Attention(dim=dim, dim_head=dim_head, heads=heads),
+                        FeedForward(dim=dim, mult=ff_mult)
+                    ])
+
+    def forward(self, batch):
+        return layer(batch)
+
 @dataclass
 class BioZorroPretrainingLossesCollection(ModelOutput):
     contrastive_loss: Optional[Tensor] = None
-    fusion_loss_rna: Optional[Tensor] = None
-    fusion_loss_atac: Optional[Tensor] = None
+    fusion_loss_spliced: Optional[Tensor] = None
+    fusion_loss_unspliced: Optional[Tensor] = None
+
 
 @dataclass
 class BioZorroPretrainingLossOutput(ModelOutput):
-    losses: BioZorroPretrainingLossesCollection = field( default_factory=BioZorroPretrainingLossesCollection)
-    rna_output: Optional[Tensor] = None
-    atac_output: Optional[Tensor] = None
+    losses: BioZorroPretrainingLossesCollection = field(default_factory=BioZorroPretrainingLossesCollection)
+    spliced_output: Optional[Tensor] = None
+    unspliced_output: Optional[Tensor] = None
     fusion_output: Optional[Tensor] = None
-    #global_output = None
+    # global_output = None
+
 
 class BioZorroPretrainingLoss(nn.Module):
     def __init__(
             self,
-            ):
+    ):
         super().__init__()
-        self.contrastive_loss =  ContrastiveLossWithTemperature()
-        self.fusion_loss_rna = ContrastiveLossWithTemperature()
-        self.fusion_loss_atac = ContrastiveLossWithTemperature()
+        self.contrastive_loss = ContrastiveLossWithTemperature()
+        self.fusion_loss_spliced = ContrastiveLossWithTemperature()
+        self.fusion_loss_unspliced = ContrastiveLossWithTemperature()
+
     def forward(
             self,
             pooled_tokens
-            ):
+    ):
         outputs = BioZorroPretrainingLossOutput()
-        outputs.rna = pooled_tokens[:,0,:].squeeze()
-        outputs.atac = pooled_tokens[:,1,:].squeeze()
-        outputs.fusion = pooled_tokens[:,2,:].squeeze()
-        outputs.losses.contrastive_loss = self.contrastive_loss(outputs.rna, outputs.atac)
-        outputs.losses.fusion_loss_rna = self.fusion_loss_rna(outputs.rna, outputs.fusion)
-        outputs.losses.fusion_loss_atac = self.fusion_loss_atac(outputs.atac, outputs.fusion)
+        outputs.spliced = pooled_tokens[:, 0, :].squeeze()
+        outputs.unspliced = pooled_tokens[:, 1, :].squeeze()
+        outputs.fusion = pooled_tokens[:, 2, :].squeeze()
+        outputs.losses.contrastive_loss = self.contrastive_loss(outputs.spliced, outputs.unspliced)
+        outputs.losses.fusion_loss_spliced = self.fusion_loss_spliced(outputs.spliced, outputs.fusion)
+        outputs.losses.fusion_loss_unspliced = self.fusion_loss_unspliced(outputs.unspliced, outputs.fusion)
         return outputs
-        
+
 
 # main class
 
 
 class BioZorro(nn.Module):
     def __init__(
-        self,
-        dim,
-        depth,
-        rna_input_dim,
-        atac_input_dim,
-        dim_head = 64,
-        heads = 8,
-        ff_mult = 4,
-        num_fusion_tokens = 16,
-        return_token_types: Tuple[TokenTypes] = (TokenTypes.RNA, TokenTypes.ATAC, TokenTypes.FUSION),
-        loss = BioZorroPretrainingLoss()
-        ):
+            self,
+            dim,
+            depth,
+            spliced_input_dim,
+            unspliced_input_dim,
+            dim_head=64,
+            heads=8,
+            ff_mult=4,
+            num_fusion_tokens=16,
+            return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED, TokenTypes.FUSION),
+            loss=BioZorroPretrainingLoss()
+    ):
         super().__init__()
         self.loss = loss
         self.max_return_tokens = len(return_token_types)
 
         self.return_token_types = return_token_types
         return_token_types_tensor = torch.tensor(list(map(lambda t: t.value, return_token_types)))
-        self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent = False)
+        self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
-        self.attn_pool = Attention(dim = dim, dim_head = dim_head, heads = heads)
+        self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
 
-        self.rna_to_tokens = nn.Sequential(
-            #Rearrange('b (h p1) (w p2) -> b h w (p1 p2)', p1 = audio_patch_height, p2 = audio_patch_width),
-            nn.LayerNorm(rna_input_dim),
-            nn.Linear(rna_input_dim, dim),
+        self.spliced_to_tokens = nn.Sequential(
+            # Rearrange('b (h p1) (w p2) -> b h w (p1 p2)', p1 = audio_patch_height, p2 = audio_patch_width),
+            nn.LayerNorm(spliced_input_dim),
+            nn.Linear(spliced_input_dim, dim),
             nn.LayerNorm(dim)
         )
 
-        self.atac_to_tokens = nn.Sequential(
-            #Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)', p1 = video_patch_time, p2 = video_patch_height, p3 = video_patch_width),
-            nn.LayerNorm(atac_input_dim),
-            nn.Linear(atac_input_dim, dim),
+        self.unspliced_to_tokens = nn.Sequential(
+            # Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)', p1 = video_patch_time, p2 = video_patch_height, p3 = video_patch_width),
+            nn.LayerNorm(unspliced_input_dim),
+            nn.Linear(unspliced_input_dim, dim),
             nn.LayerNorm(dim)
         )
 
@@ -223,43 +253,43 @@ class BioZorro(nn.Module):
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                Attention(dim = dim, dim_head = dim_head, heads = heads),
-                FeedForward(dim = dim, mult = ff_mult)
-            ]))
+            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult))
 
         self.norm = LayerNorm(dim)
 
     def forward(
-        self,
-        *,
-        rna,
-        atac,
-        return_token_indices: Optional[Tuple[int]] = None
+            self,
+            *,
+            spliced,
+            unspliced,
+            return_token_indices: Optional[Tuple[int]] = None
     ):
-        batch, device = rna.shape[0], rna.device
+        batch, device = spliced.shape[0], unspliced.device
 
-        rna_tokens = self.rna_to_tokens(rna)
-        atac_tokens = self.atac_to_tokens(atac)
-        fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b = batch)
+        spliced_tokens = self.spliced_to_tokens(spliced)
+        unspliced_tokens = self.unspliced_to_tokens(unspliced)
+        fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
         # construct all tokens
 
-        rna_tokens, fusion_tokens, atac_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'), (rna_tokens, fusion_tokens, atac_tokens))
+        spliced_tokens, \
+        fusion_tokens, \
+        unspliced_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'),
+                               (spliced_tokens, fusion_tokens, unspliced_tokens))
 
         tokens, ps = pack((
-            rna_tokens,
+            spliced_tokens,
             fusion_tokens,
-            atac_tokens
+            unspliced_tokens
         ), 'b * d')
 
         # construct mask (thus zorro)
 
         token_types = torch.tensor(list((
-            *((TokenTypes.RNA.value,) * rna_tokens.shape[-2]),
+            *((TokenTypes.SPLICED.value,) * spliced_tokens.shape[-2]),
             *((TokenTypes.FUSION.value,) * fusion_tokens.shape[-2]),
-            *((TokenTypes.ATAC.value,) * atac_tokens.shape[-2]),
-        )), device = device, dtype = torch.long)
+            *((TokenTypes.UNSPLICED.value,) * unspliced_tokens.shape[-2]),
+        )), device=device, dtype=torch.long)
 
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
@@ -276,7 +306,7 @@ class BioZorro(nn.Module):
         # attend and feedforward
 
         for attn, ff in self.layers:
-            tokens = attn(tokens, attn_mask = zorro_mask) + tokens
+            tokens = attn(tokens, attn_mask=zorro_mask) + tokens
             tokens = ff(tokens) + tokens
 
         tokens = self.norm(tokens)
@@ -288,19 +318,20 @@ class BioZorro(nn.Module):
 
         if exists(return_token_indices):
             assert len(set(return_token_indices)) == len(return_token_indices), 'all indices must be unique'
-            assert all([indice < self.max_return_tokens for indice in return_token_indices]), 'indices must range from 0 to max_num_return_tokens - 1'
+            assert all([indice < self.max_return_tokens for indice in
+                        return_token_indices]), 'indices must range from 0 to max_num_return_tokens - 1'
 
-            return_token_indices = torch.tensor(return_token_indices, dtype = torch.long, device = device)
+            return_token_indices = torch.tensor(return_token_indices, dtype=torch.long, device=device)
 
             return_token_types_tensor = return_token_types_tensor[return_token_indices]
             return_tokens = return_tokens[return_token_indices]
 
-        return_tokens = repeat(return_tokens, 'n d -> b n d', b = batch)
+        return_tokens = repeat(return_tokens, 'n d -> b n d', b=batch)
         pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
         # global queries can attend to all tokens
-        pool_mask = pool_mask | rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value
+        pool_mask = pool_mask | rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
+            token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value
 
-        pooled_tokens = self.attn_pool(return_tokens, context = tokens, attn_mask = pool_mask) + return_tokens
+        pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask) + return_tokens
 
         return self.loss(pooled_tokens)
-
