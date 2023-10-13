@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --nodes=1 #4
-#SBATCH --cpus-per-task=124
+#SBATCH --nodes=2
+##SBATCH --cpus-per-task=124
 #SBATCH --tasks-per-node=1
-##SBATCH --exclusive
+#SBATCH --exclusive
 #SBATCH --output=slurm-%x-%j.out
 #conda activate work39
 ulimit -Sn unlimited
@@ -13,4 +13,4 @@ ulimit -Sn
 ulimit -Hn
 ulimit -u
 ulimit -c
-srun ./run_clm_geneformer_pretraining.sh MIXED
+srun ./run_clm_geneformer_pretraining.sh BF16 #MIXED
