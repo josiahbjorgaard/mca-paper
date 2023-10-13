@@ -93,12 +93,6 @@ torch.utils.checkpoint.checkpoint = torch_xla.utils.checkpoint.checkpoint
 
 import wandb
 
-
-try:
-    from utilities.reporting import Metric, post_metrics
-except ImportError:
-    Metric = post_metrics = lambda *args, **kwargs: None
-
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.26.0")
 
@@ -114,7 +108,8 @@ os.environ['TRANSFORMERS_CACHE']="/shared/.cache/transformers"
 os.environ['NEURON_COMPILE_CACHE_URL']="/shared/.cache/neuron"
 
 # Uncomment below to keep only 2 subgraphs loaded at a time
-os.environ['NEURON_NUM_RECENT_MODELS_TO_KEEP'] = '3' #4 will result in OOM
+#os.environ['NEURON_NUM_RECENT_MODELS_TO_KEEP'] = '3' #4 will result in OOM
+
 if os.environ.get("XLA_DOWNCAST_BF16") == '1':
     Bf16 = torch.finfo(torch.bfloat16)
     Fp32 = torch.finfo(torch.float32)
@@ -123,7 +118,6 @@ if os.environ.get("XLA_DOWNCAST_BF16") == '1':
 if os.environ.get("XLA_USE_BF16") == '1':
     Bf16 = torch.finfo(torch.bfloat16)
     torch.finfo = lambda a:Bf16
-
 
 def get_param_norm(
     args,
@@ -173,53 +167,35 @@ def get_grad_norm(
         #Gradients are scattered, so need to add all of them together
         total_norm = model.all_reduce_op(xm.REDUCE_SUM, local_norm, groups=groups)
         total_norm = total_norm**(1.0 / norm_type)
-    elif args.use_zero1:
-        total_norm = xm.all_reduce(xm.REDUCE_SUM, local_norm, groups=groups, pin_layout=False)
-        total_norm = total_norm**(1.0 / norm_type)
     else:
         total_norm = local_norm**(1.0 / norm_type)
-    #return total_norm.cpu().item()
     return total_norm
 
 
-def training_metrics_closure(logger_metrics, epoch, global_step, loss, learning_rate, tp, grad_norm=None, param_norm=None):
-    loss_val = loss.detach().to('cpu').item()
-    grad_norm_val = grad_norm.detach().to('cpu').item() if grad_norm else None
-    param_norm_val = param_norm.detach().to('cpu').item() if param_norm else None
-    if logger_metrics != None:
-        logger_metrics.log(epoch, global_step, loss_val, learning_rate, tp, grad_norm_val, param_norm_val, noisy_check=True)
-        #if args.with_tracking:
-        wandb.log({"loss":loss_val, "grad_norm": grad_norm_val, "param_norm":param_norm_val, "learning_rate":learning_rate, "throughput":tp}, step=global_step)
+def training_metrics_closure(epoch, global_step, loss, learning_rate, grad_norm=None, param_norm=None):
+    if xm.is_master_ordinal(local=False) and args.with_tracking:
+        loss_val = loss.detach().to('cpu').item()
+        grad_norm_val = grad_norm.detach().to('cpu').item() if grad_norm else None
+        param_norm_val = param_norm.detach().to('cpu').item() if param_norm else None
+        wandb.log({"loss":loss_val, "grad_norm": grad_norm_val, "param_norm":param_norm_val, "learning_rate":learning_rate}) #, step=global_step)
+
+def eval_metrics_closure(loss, loss_type, step):
+    if xm.is_master_ordinal(local=False) and args.with_tracking:
+        loss_val = loss.detach().to('cpu').item()
+        wandb.log({f"val_{loss_type}_loss":loss_val}) #, step=step)
 
 def build_chkpt_path(output_dir, step, rank, world_size):
     chkpt_path = os.path.join(output_dir, f"step-{step}-rank-{rank}-of-{world_size}.ckpt")
     return chkpt_path
 
 def main():
-
     torch.distributed.init_process_group('xla')
     device = xm.xla_device()
     rank = xm.get_ordinal()
     world_size = xm.xrt_world_size()
-
     print(f'rank: {rank}, world size {world_size}')
-
     args = parse_args()
-
-    # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
-    # information sent is the one passed as arguments along with your Python/PyTorch versions.
-    send_example_telemetry("run_clm_no_trainer", args)
-
-    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
-    # If we're using tracking, we also need to initialize it here and it will by default pick up all supported trackers
-    # in the environment
     accelerator_log_kwargs = {}
-
-    #This doesn't seem to work with wandb
-    #if args.with_tracking:
-        #accelerator_log_kwargs["log_with"] = args.report_to
-        #accelerator_log_kwargs["logging_dir"] = args.output_dir
-
     accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
 
     # Make one log on every process with the configuration for debugging.
@@ -238,121 +214,26 @@ def main():
 
     # If passed along, set the training seed now.
     if args.seed is not None:
-        if args.use_mics:
-            set_seed(args.seed, device_specific=True)
-            # Do not need this, since device_specific=False in set_seed above
-            seed_group_size = int(os.environ.get("NEURON_MICS_PARTITION_GROUP_SIZE", 32))
-            seed = args.seed + rank % seed_group_size
-            np.random.seed(seed=seed)
-            random.seed(seed)
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            if is_tpu_available():
-                xm.set_rng_state(seed)
-        else:
-            set_seed(args.seed, device_specific=False)
+        set_seed(args.seed, device_specific=False)
 
-    # Handle the repository creation
-    if accelerator.is_main_process:
-        if args.push_to_hub:
-            if args.hub_model_id is None:
-                repo_name = get_full_repo_name(Path(args.output_dir).name, token=args.hub_token)
-            else:
-                repo_name = args.hub_model_id
-            create_repo(repo_name, exist_ok=True, token=args.hub_token)
-            repo = Repository(args.output_dir, clone_from=repo_name, token=args.hub_token)
-
-            with open(os.path.join(args.output_dir, ".gitignore"), "w+") as gitignore:
-                if "step_*" not in gitignore:
-                    gitignore.write("step_*\n")
-                if "epoch_*" not in gitignore:
-                    gitignore.write("epoch_*\n")
-        elif args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
-    accelerator.wait_for_everyone()
-
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    if args.load_tokenized_dataset is not None:
-        xm.master_print("Loading tokenized dataset from ", args.load_tokenized_dataset)
-        lm_datasets = load_from_disk(args.load_tokenized_dataset).train_test_split(test_size=0.05)
+    #### MODEL
+    config = AutoConfig.from_pretrained(args.model_name_or_path)
+    tokenizer = type('obj', (object,), {'model_max_length' : args.block_size})
+    model = BertForMaskedLM(config)
     
-    if args.config_name:
-        config = AutoConfig.from_pretrained(args.config_name)
-    elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path)
-    else:
-        config = CONFIG_MAPPING[args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
+    if xm.is_master_ordinal(local=False):
+        n_params = count_parameters(model)
+        print(f'TOTAL PARAMETERS: {n_params}')
 
-    if args.tokenizer_name and args.tokenizer_name != 'None':
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer)
-    elif args.model_name_or_path and args.tokenizer_name != 'None':
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
-    elif args.block_size is not None: #Geneformer hack
-        tokenizer = type('obj', (object,), {'model_max_length' : args.block_size})
-    else:
-        raise ValueError(
-            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
-            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
-        )
-    if args.block_size is not None and args.block_size > tokenizer.model_max_length:
-        tokenizer.model_max_length = args.block_size
-        logger.warning(
-            f"The block_size passed ({args.block_size}) is larger than the maximum length for the model"
-            f"({tokenizer.model_max_length}). Setting tokenizer.model_max_length to {args.block_size}."
-        )
-
-    if args.model_name_or_path:
-        model_config = {
-            #"vocab_size": 50304 if args.use_zero1 else len(tokenizer),  # zero1 not support padding
-            "vocab_size": 25426, #Geneformer hack
-            "max_length": args.block_size,
-            #"fused_scaled_masked_softmax": True, #args.fused_scaled_masked_softmax,
-            #"fused_gelu": args.fused_gelu,
-            "gradient_checkpointing": args.gradient_checkpointing,
-            "use_cache": not args.gradient_checkpointing,
-        }
-
-        config = AutoConfig.from_pretrained(args.model_name_or_path)
-        #model = AutoModelForMaskedLM.from_config(config)
-        model = BertForMaskedLM(config)
-
-        if xm.is_master_ordinal(local=False):
-            print('==========================================================================')
-            print(f'TOTAL PARAMETERS: {count_parameters(model)}')
-            print('==========================================================================')
-
-        # remove model = model.to('xla') before FSDP wrapper, so that the sharding will happen in CPU and only the sharded tensor will be sent to device
-        # model = model.to('xla')
-
-        model_dtype = get_dtype(model)
-        extract_graphs_only = os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY", None)
-        if xm.is_master_ordinal(local=False) and not extract_graphs_only:
-            logger_metrics = Logger(args, world_size, model_dtype)
-        else:
-            logger_metrics = None
-
-        # Moved here for FSDP because once we wrap with FSDP the weights will be sharded
-        # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
-        # on a small vocab and want a smaller embedding size, remove this test.
-        embedding_size = model.get_input_embeddings().weight.shape[0]
-        # Comment out for Geneformer
-        #if len(tokenizer) > embedding_size:
-        #    model.resize_token_embeddings(len(tokenizer))
-        if args.use_fsdp:
-            auto_wrap_policy = functools.partial(
+    model_dtype = get_dtype(model)
+    #extract_graphs_only = os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY", None)
+    
+    if args.use_fsdp:
+        auto_wrap_policy = functools.partial(
                 transformer_auto_wrap_policy,
                 transformer_layer_cls=(BertLayer,)
             )
-            fsdp_params = dict(flatten_parameters=False,
+        fsdp_params = dict(flatten_parameters=False,
                                shard_param_on_dim_0=True,
                                optimization_barrier_in_forward=True,
                                optimization_barrier_in_backward=True,
@@ -361,51 +242,18 @@ def main():
                                coalesce_all_gather_ops=False,
                                auto_wrap_policy=auto_wrap_policy,
                                _debug_print=True, _debug_msg=f'Worker {rank}')
-            if os.environ.get('TRAINING_PRECISION', default='') == 'MIXED':
-                fsdp_params['compute_dtype'] = torch.bfloat16
-            if args.use_mics:
-                from torch_neuronx.distributed.fsdp_mics import XlaFullyShardedDataParallelMiCS as FSDPMiCS
-                model = FSDPMiCS(model, **fsdp_params)
-            else:
-                model = FSDP(model, **fsdp_params)
-            # Need to re-assign the shared module to use the correct FSDP wrapper
-            # In BERT:
-            # model.cls.predictions.decoder = model.bert.embeddings.word_embeddings
-            # Here counter-part, but need to verify
-            # model.lm_head = model.transformer.wte
-        elif args.use_zero1:
-            if model_dtype == "torch.float32":
-                model = model.to(device='xla', dtype=torch.float32)
-            elif model_dtype == "torch.bfloat16":
-                model = model.to(device='xla', dtype=torch.bfloat16)
-    else:
-        logger.info("Training new model from scratch")
-        #model = AutoModelForCausalLM.from_config(config)
-        model = AutoModelForMaskedLM.from_config(config)
-        # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
-        # on a small vocab and want a smaller embedding size, remove this test.
-        embedding_size = model.get_input_embeddings().weight.shape[0]
-        if len(tokenizer) > embedding_size:
-            model.resize_token_embeddings(len(tokenizer))
+        if os.environ.get('TRAINING_PRECISION', default='') == 'MIXED':
+            fsdp_params['compute_dtype'] = torch.bfloat16
+        model = FSDP(model, **fsdp_params)
 
-
-    def tokenize_function(examples):
-        return tokenizer(examples[text_column_name])
-
-    if args.block_size is None:
-        block_size = tokenizer.model_max_length
-    else:
-        block_size = args.block_size
-
+    #### DATASET
+    xm.master_print("Loading tokenized dataset from ", args.load_tokenized_dataset)
+    lm_datasets = load_from_disk(args.load_tokenized_dataset)
     for part in lm_datasets.keys():
         lm_datasets[part] = lm_datasets[part].remove_columns("length")
-    train_dataset = lm_datasets["train"]#.with_format('torch')
-    eval_dataset = lm_datasets["test"]#.with_format('torch')
+    train_dataset = lm_datasets["train"]
+    eval_dataset = lm_datasets["test"]
     
-    # Log a few random samples from the training set:
-    for index in random.sample(range(len(train_dataset)), 3):
-        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-
     #Geneformer Collator
     with open("/efs-private/Genecorpus-30M/token_dictionary.pkl", "rb") as fp:
         token_dictionary = pickle.load(fp)
@@ -416,17 +264,16 @@ def main():
         )
 
     # DataLoaders creation:
-
     train_dataloader = DataLoader(
         train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size,
-        prefetch_factor=4, num_workers=3, pin_memory=True
+        prefetch_factor=4, num_workers=2 #, pin_memory=True
     )
     eval_dataloader = DataLoader(
         eval_dataset, collate_fn=default_data_collator, batch_size=args.per_device_eval_batch_size,
-        prefetch_factor=4, num_workers=3, pin_memory=True
+        prefetch_factor=4, num_workers=2 #, pin_memory=True
     )
 
-    # Optimizer
+    #### OPTIMIZER
     # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "layer_norm.weight"]
     optimizer_grouped_parameters = [
@@ -443,11 +290,10 @@ def main():
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = len(train_dataloader)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
-
 
     # Prepare everything with our `accelerator`.
     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
@@ -466,35 +312,20 @@ def main():
         model.tie_weights()
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
-    if overrode_max_train_steps:
-        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-    # Afterwards we recalculate our number of training epochs
-    args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
-
-    # Figure out how many steps we should save the Accelerator states
-    checkpointing_steps = args.checkpointing_steps
-    if checkpointing_steps is not None and checkpointing_steps.isdigit():
-        checkpointing_steps = int(checkpointing_steps)
+    args.max_train_steps = args.num_train_epochs * len(train_dataloader) 
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
-    #if args.with_tracking:
-    experiment_config = vars(args)
-        # TensorBoard cannot log Enums, need the raw value
-    experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
-        #accelerator.init_trackers("clm_no_trainer", experiment_config)
-    if xm.is_master_ordinal(local=False):
+    if xm.is_master_ordinal(local=False) and args.with_tracking:
+        experiment_config = {**vars(args), **config.to_dict()}
+        experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
+        experiment_config["n_params"] = n_params
         wandb.init(
                 project="Geneformer Pretraining",
                 config=experiment_config,
                 entity="josiahbjorgaard",
                 )
                             
-#
-    # Train!
-    if xm.is_master_ordinal(local=False):
-        print(args)
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
     if xm.is_master_ordinal(local=False):
@@ -508,7 +339,7 @@ def main():
 
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
-    throughput = Throughput(args.per_device_train_batch_size, world_size, args.gradient_accumulation_steps)
+    
     starting_epoch = 0
     resume_step = 0
 
@@ -531,9 +362,16 @@ def main():
     # update the progress_bar if load from checkpoint
     progress_bar.update(starting_epoch * num_update_steps_per_epoch)
     global_step = starting_epoch * num_update_steps_per_epoch
-
+    global_eval_step = 0
     optimizer.zero_grad()
     xm.mark_step()
+
+    # Figure out how many steps we should save the Accelerator states
+    checkpointing_steps = args.checkpointing_steps
+    if checkpointing_steps is not None and checkpointing_steps.isdigit():
+        checkpointing_steps = int(checkpointing_steps)
+    elif checkpointing_steps == "epoch":
+        checkpointing_steps = num_update_steps_per_epoch
 
     optimizer_step_done_at_least_once=0
     torch_neuronx.xla_impl.ops.set_unload_prior_neuron_models_mode(True)
@@ -559,39 +397,19 @@ def main():
                     time.sleep(1)
                     xm.rendezvous("Init Complete")
 
-            if args.use_fsdp and args.use_mics:
-                param_norm = get_param_norm(args, model, groups=model.mics_sharding_cfg.partition_groups)
-            elif args.use_zero1:
-                param_norm = None
-            else:
-                param_norm = get_param_norm(args, model)
+            param_norm = get_param_norm(args, model)
 
             outputs = model(**batch)
             loss = outputs.loss
             loss.backward()
-            #running_loss_div = loss.detach() / world_size
-            #xm.master_print(f"Printing the running loss div on master: {running_loss_div}")
-            #running_loss_reduced = xm.all_reduce(xm.REDUCE_SUM, running_loss_div, groups=None)
-            #running_loss.zero_()
-            #xm.master_print(f"Printing the running loss reduced on master: {running_loss_reduced}")
-            # Record grad norm
             grad_norm = get_grad_norm(args, model)
-
-                # gradient norm clipping
-                #if args.use_grad_clipping and not args.use_zero1:
-                #    if args.use_fsdp:
-                #        model.clip_grad_norm_(max_norm=args.max_grad_norm)
-                #    else:
-                #        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_grad_norm)
-
             optimizer.optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
             global_step+=1
-            tp = throughput.get_throughput()
             #if not extract_graphs_only:
             xm.mark_step()
-            xm.add_step_closure(training_metrics_closure, (logger_metrics, epoch, global_step, loss.detach(), optimizer.param_groups[0]['lr'], tp, grad_norm, param_norm),run_async=False) #no data dependency with next mark_step
+            xm.add_step_closure(training_metrics_closure, (epoch, global_step, loss.detach(), optimizer.param_groups[0]['lr'],grad_norm, param_norm),run_async=False) #no data dependency with next mark_step
 
             progress_bar.update(1)
 
@@ -610,28 +428,26 @@ def main():
                         xser.save(ckpt, ckpt_path, master_only=False)
                         xm.master_print(f"Checkpoint saved to {ckpt_path}", flush=True)
                         xm.rendezvous("Checkpoint saved")
+        
+        #Evaluation
+        xm.master_print(f"Running Eval Now")
+        model.eval() 
+        with torch.no_grad():
+            epoch_loss = 0.0
+            for i, batch in enumerate(tqdm(eval_dataloader)):
+                outputs = model(**batch)
+                loss = outputs.loss
+                running_loss_div = loss.detach() / world_size
+                running_loss_reduced = xm.all_reduce(xm.REDUCE_SUM, running_loss_div, groups=None)
+                #xm.master_print(f"Loss: {running_loss_reduced}")
+                global_eval_step+=1
+                epoch_loss += running_loss_reduced
+                xm.mark_step()
+                xm.add_step_closure(eval_metrics_closure, (running_loss_reduced, 'step', global_eval_step), run_async=False)
+            xm.add_step_closure(eval_metrics_closure, (epoch_loss/len(eval_dataloader), 'epoch', epoch), run_async=False)
 
-            if global_step >= args.max_train_steps:
-                if xm.is_master_ordinal(local=False) and not extract_graphs_only:
-                    average_throughput = round(sum(logger_metrics.throughputs)/len(logger_metrics.throughputs), 4)
-                    if not os.environ.get("FI_EFA_USE_DEVICE_RDMA", None) and world_size > 32:
-                       # multi-node/4-nodes throughput check
-                        assert(average_throughput >= 45), "Average throughput :{} is  below derived expected derived threshold: {}".format(average_throughput, str(45))
-                    else:
-                        # single node throughput check
-                        assert(average_throughput >= 14), "Average throughput :{} is  below derived expected derived threshold: {}".format(average_throughput, str(14))
-                break
-
-    #if args.with_tracking:
-    accelerator.end_training()
-
-    if args.output_dir is not None:
-        accelerator.wait_for_everyone()
-        if accelerator.is_main_process:
-            #tokenizer.save_pretrained(args.output_dir)
-            if args.push_to_hub:
-                repo.push_to_hub(commit_message="End of training", auto_lfs_prune=True)
-
+    if args.with_tracking():
+        wandb.finish()
 
 if __name__ == "__main__":
     main()
