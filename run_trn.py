@@ -1,44 +1,15 @@
-# HF orginal code from https://raw.githubusercontent.com/huggingface/transformers/v4.26.1/examples/pytorch/language-modeling/run_clm_no_trainer.py
-#!/usr/bin/env python
-# coding=utf-8
-# Copyright 2021 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Fine-tuning the library models for causal language modeling (GPT, GPT-2, CTRL, ...)
-on a text file or a dataset without using HuggingFace Trainer.
 
-Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
-https://huggingface.co/models?filter=text-generation
-"""
-# You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
-
-import json
 import logging
 import math
-import os
 import random
-from itertools import chain
 from pathlib import Path
 import pickle
 import torch_neuronx
 import datasets
 import torch
-from datasets import load_dataset
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-import queue
 import transformers
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
@@ -54,25 +25,10 @@ from transformers import (
     AutoModel,
     AutoTokenizer,
     SchedulerType,
-    #default_data_collator,
     DataCollatorForLanguageModeling,
     get_scheduler,
-    BertLayer,
-    GPT2Config,
-    GPT2Model,
-    GPT2LMHeadModel,
-    GPTNeoConfig,
-    GPTNeoModel,
-    GPTNeoForCausalLM
 )
 
-from transformers.models.gpt2.modeling_gpt2 import GPT2Block
-from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock
-
-import time
-import contextlib
-from transformers.modeling_utils import PreTrainedModel
-from transformers.trainer_pt_utils import get_module_class_from_name
 from transformers.utils import check_min_version, get_full_repo_name, send_example_telemetry
 from transformers.utils.versions import require_version
 
@@ -83,11 +39,9 @@ import torch_xla.core.xla_model as xm
 from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
 from torch_xla.distributed.fsdp.wrap import transformer_auto_wrap_policy
 import torch_xla.distributed.xla_backend
-from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 from neuron_utils import *
 from accelerate.utils.imports import is_tpu_available
 
-from geneformer.pretrainer import GeneformerPreCollator
 # we need to use the torch_xla checkpoint. Otherwise the some checkpointing patterns will be eliminated by the compiler common expression elimination
 torch.utils.checkpoint.checkpoint = torch_xla.utils.checkpoint.checkpoint
 
@@ -131,24 +85,17 @@ def get_param_norm(
     norm_type=2.0,
     groups=None,
 ) -> torch.Tensor:
-
     norm_type = float(norm_type)
     local_norm = torch.DoubleTensor([0.0]).to('xla')
     parameters = model.parameters()
-    grads_for_norm = []
     for param in parameters:
         param_norm = torch.norm(param.detach(), norm_type)
         local_norm += param_norm ** norm_type
-
     if args.use_fsdp:
         total_norm = model.all_reduce_op(xm.REDUCE_SUM, local_norm, groups=groups)
         total_norm = total_norm**(1.0 / norm_type)
-    elif args.use_zero1:
-        total_norm = xm.all_reduce(xm.REDUCE_SUM, local_norm, groups=groups, pin_layout=False)
-        total_norm = total_norm**(1.0 / norm_type)
     else:
         total_norm = local_norm**(1.0 / norm_type)
-    #return total_norm.cpu().item()
     return total_norm
 
 def get_grad_norm(
@@ -161,7 +108,6 @@ def get_grad_norm(
     norm_type = float(norm_type)
     local_norm = torch.FloatTensor([float(0.0)]).to('xla')
     parameters = model.parameters()
-    grads_for_norm = []
     for param in parameters:
         grad_not_none = param.grad is not None
         if grad_not_none:
@@ -173,16 +119,13 @@ def get_grad_norm(
         #Gradients are scattered, so need to add all of them together
         total_norm = model.all_reduce_op(xm.REDUCE_SUM, local_norm, groups=groups)
         total_norm = total_norm**(1.0 / norm_type)
-    elif args.use_zero1:
-        total_norm = xm.all_reduce(xm.REDUCE_SUM, local_norm, groups=groups, pin_layout=False)
-        total_norm = total_norm**(1.0 / norm_type)
     else:
         total_norm = local_norm**(1.0 / norm_type)
     #return total_norm.cpu().item()
     return total_norm
 
 
-def training_metrics_closure(logger_metrics, epoch, global_step, loss, learning_rate, tp, grad_norm=None, param_norm=None):
+def training_metrics_closure(logger_metrics, epoch, global_step, loss, learning_rate, grad_norm=None, param_norm=None):
     loss_val = loss.detach().to('cpu').item()
     grad_norm_val = grad_norm.detach().to('cpu').item() if grad_norm else None
     param_norm_val = param_norm.detach().to('cpu').item() if param_norm else None
@@ -206,20 +149,8 @@ def main():
 
     args = parse_args()
 
-    # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
-    # information sent is the one passed as arguments along with your Python/PyTorch versions.
-    send_example_telemetry("run_clm_no_trainer", args)
-
     # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
-    # If we're using tracking, we also need to initialize it here and it will by default pick up all supported trackers
-    # in the environment
     accelerator_log_kwargs = {}
-
-    #This doesn't seem to work with wandb
-    #if args.with_tracking:
-        #accelerator_log_kwargs["log_with"] = args.report_to
-        #accelerator_log_kwargs["logging_dir"] = args.output_dir
-
     accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
 
     # Make one log on every process with the configuration for debugging.
@@ -254,32 +185,10 @@ def main():
 
     # Handle the repository creation
     if accelerator.is_main_process:
-        if args.push_to_hub:
-            if args.hub_model_id is None:
-                repo_name = get_full_repo_name(Path(args.output_dir).name, token=args.hub_token)
-            else:
-                repo_name = args.hub_model_id
-            create_repo(repo_name, exist_ok=True, token=args.hub_token)
-            repo = Repository(args.output_dir, clone_from=repo_name, token=args.hub_token)
-
-            with open(os.path.join(args.output_dir, ".gitignore"), "w+") as gitignore:
-                if "step_*" not in gitignore:
-                    gitignore.write("step_*\n")
-                if "epoch_*" not in gitignore:
-                    gitignore.write("epoch_*\n")
-        elif args.output_dir is not None:
+        if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
     if args.load_tokenized_dataset is not None:
         xm.master_print("Loading tokenized dataset from ", args.load_tokenized_dataset)
         lm_datasets = load_from_disk(args.load_tokenized_dataset).train_test_split(test_size=0.05)
