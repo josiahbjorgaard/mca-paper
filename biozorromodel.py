@@ -18,6 +18,7 @@ from torchmultimodal.modules.losses.contrastive_loss_with_temperature import Con
 # from beartype import beartype
 from beartype.typing import Tuple, Optional, Union
 
+from .encoders import BioZorroEncoder
 
 # constants
 
