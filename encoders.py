@@ -1,5 +1,22 @@
 import torch
 from torch import nn
+from torch.nn.functional import pad
+class CustomCollator:
+    def __init__(self, pad_token=0, pad_len=1024):
+        self.pad_token = pad_token
+        self.pad_len=2048
+    def __call__(self, data):#(2)
+        collated_data = {k:list() for k in data[0].keys()}
+        for d in data:
+            for k,v in d.items():
+                length = v.shape[-1]
+                padded_v = pad(v, (0,self.pad_len-length), mode='constant', value=self.pad_token)
+                collated_data[k].append(padded_v)
+        for k,v in collated_data.items():
+            collated_data[k]=torch.stack(v)
+        return collated_data
+
+biozorro_collator(data)
 
 class BioZorroEncoder(nn.Module):
     def __init__(self,

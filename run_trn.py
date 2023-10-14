@@ -1,19 +1,3 @@
-# HF orginal code from https://raw.githubusercontent.com/huggingface/transformers/v4.26.1/examples/pytorch/language-modeling/run_clm_no_trainer.py
-#!/usr/bin/env python
-# coding=utf-8
-# Copyright 2021 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 Fine-tuning the library models for causal language modeling (GPT, GPT-2, CTRL, ...)
 on a text file or a dataset without using HuggingFace Trainer.
@@ -21,73 +5,33 @@ on a text file or a dataset without using HuggingFace Trainer.
 Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
 https://huggingface.co/models?filter=text-generation
 """
-# You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
 
-import json
 import logging
-import math
-import os
-import random
-from itertools import chain
-from pathlib import Path
 import pickle
 import torch_neuronx
 import datasets
 import torch
-from datasets import load_dataset
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-import queue
 import transformers
 from accelerate import Accelerator, DistributedType
-from accelerate.logging import get_logger
 from accelerate.utils import set_seed
-from huggingface_hub import Repository, create_repo
-from transformers import (
-    CONFIG_MAPPING,
-    MODEL_MAPPING,
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoModelForMaskedLM,
-    BertForMaskedLM,
-    AutoModel,
-    AutoTokenizer,
-    SchedulerType,
-    #default_data_collator,
-    DataCollatorForLanguageModeling,
-    get_scheduler,
-    BertLayer,
-    GPT2Config,
-    GPT2Model,
-    GPT2LMHeadModel,
-    GPTNeoConfig,
-    GPTNeoModel,
-    GPTNeoForCausalLM
-)
+from transformers import get_scheduler
 
-from transformers.models.gpt2.modeling_gpt2 import GPT2Block
-from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock
-
-import time
-import contextlib
-from transformers.modeling_utils import PreTrainedModel
-from transformers.trainer_pt_utils import get_module_class_from_name
 from transformers.utils import check_min_version, get_full_repo_name, send_example_telemetry
 from transformers.utils.versions import require_version
 
-import numpy as np
 import torch_xla.utils.serialization as xser
 import functools
 import torch_xla.core.xla_model as xm
 from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
 from torch_xla.distributed.fsdp.wrap import transformer_auto_wrap_policy
 import torch_xla.distributed.xla_backend
-from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 from neuron_utils import *
-from accelerate.utils.imports import is_tpu_available
 
-from geneformer.pretrainer import GeneformerPreCollator
+from .biozorromodel import BioZorro, BioZorroLayer
+
 # we need to use the torch_xla checkpoint. Otherwise the some checkpointing patterns will be eliminated by the compiler common expression elimination
 torch.utils.checkpoint.checkpoint = torch_xla.utils.checkpoint.checkpoint
 
@@ -129,7 +73,6 @@ def get_param_norm(
     norm_type = float(norm_type)
     local_norm = torch.DoubleTensor([0.0]).to('xla')
     parameters = model.parameters()
-    grads_for_norm = []
     for param in parameters:
         param_norm = torch.norm(param.detach(), norm_type)
         local_norm += param_norm ** norm_type
@@ -155,7 +98,6 @@ def get_grad_norm(
     norm_type = float(norm_type)
     local_norm = torch.FloatTensor([float(0.0)]).to('xla')
     parameters = model.parameters()
-    grads_for_norm = []
     for param in parameters:
         grad_not_none = param.grad is not None
         if grad_not_none:
@@ -218,20 +160,16 @@ def main():
 
     #### MODEL
     config = AutoConfig.from_pretrained(args.model_name_or_path)
-    tokenizer = type('obj', (object,), {'model_max_length' : args.block_size})
-    model = BertForMaskedLM(config)
+    model = BioZorro(config)
     
     if xm.is_master_ordinal(local=False):
         n_params = count_parameters(model)
         print(f'TOTAL PARAMETERS: {n_params}')
 
-    model_dtype = get_dtype(model)
-    #extract_graphs_only = os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY", None)
-    
     if args.use_fsdp:
         auto_wrap_policy = functools.partial(
                 transformer_auto_wrap_policy,
-                transformer_layer_cls=(BertLayer,)
+                transformer_layer_cls=(BioZorroLayer,)
             )
         fsdp_params = dict(flatten_parameters=False,
                                shard_param_on_dim_0=True,
@@ -257,7 +195,6 @@ def main():
     #Geneformer Collator
     with open("/efs-private/Genecorpus-30M/token_dictionary.pkl", "rb") as fp:
         token_dictionary = pickle.load(fp)
-    precollator = GeneformerPreCollator(token_dictionary=token_dictionary)
     default_data_collator = DataCollatorForLanguageModeling(
         tokenizer=precollator, mlm=True, mlm_probability=0.15,
         pad_to_multiple_of=2048
