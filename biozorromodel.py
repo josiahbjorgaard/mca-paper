@@ -230,21 +230,15 @@ class BioZorro(nn.Module):
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
 
-        self.spliced_to_tokens = nn.Sequential(
-            # Rearrange('b (h p1) (w p2) -> b h w (p1 p2)', p1 = audio_patch_height, p2 = audio_patch_width),
-            nn.LayerNorm(spliced_input_dim),
-            nn.Linear(spliced_input_dim, dim),
-            nn.LayerNorm(dim)
+        self.spliced_embedding = BioZorroEncoder(
+            num_embeddings = 17800, #vocab size
+            embedding_dim = 512, #largest size
         )
 
-        self.unspliced_to_tokens = nn.Sequential(
-            # Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)', p1 = video_patch_time, p2 = video_patch_height, p3 = video_patch_width),
-            nn.LayerNorm(unspliced_input_dim),
-            nn.Linear(unspliced_input_dim, dim),
-            nn.LayerNorm(dim)
+        self.unspliced_embedding = BioZorroEncoder(
+            num_embeddings = 17800, #vocab size
+            embedding_dim = 512, #largest size
         )
-
-        # fusion tokens
 
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
 
@@ -260,14 +254,16 @@ class BioZorro(nn.Module):
     def forward(
             self,
             *,
-            spliced,
-            unspliced,
+            spliced_counts,
+            spliced_index,
+            unspliced_counts,
+            unspliced_index,
             return_token_indices: Optional[Tuple[int]] = None
     ):
         batch, device = spliced.shape[0], unspliced.device
 
-        spliced_tokens = self.spliced_to_tokens(spliced)
-        unspliced_tokens = self.unspliced_to_tokens(unspliced)
+        spliced_tokens = self.spliced_to_tokens(spliced_index, spliced_counts)
+        unspliced_tokens = self.unspliced_to_tokens(unspliced_index, unspliced_counts)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
         # construct all tokens

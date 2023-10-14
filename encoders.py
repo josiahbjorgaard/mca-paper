@@ -1,10 +1,10 @@
 import torch
 from torch import nn
 from torch.nn.functional import pad
-class CustomCollator:
-    def __init__(self, pad_token=0, pad_len=1024):
+class BioZorroCollator:
+    def __init__(self, pad_token=0, pad_len=2048):
         self.pad_token = pad_token
-        self.pad_len=2048
+        self.pad_len=pad_len
     def __call__(self, data):#(2)
         collated_data = {k:list() for k in data[0].keys()}
         for d in data:
@@ -20,15 +20,15 @@ biozorro_collator(data)
 
 class BioZorroEncoder(nn.Module):
     def __init__(self,
-                 num_embeddings = 512,
-                 embedding_dim = 512,
-                 padding_idx = 2048
+                 num_embeddings = 18000, #Vocab size
+                 embedding_dim = 512, #size of embedding vector
+                 padding_idx = 0, #padding (no entry) token
                  ):
         self.gene_encoder = GeneEncoder(num_embeddings, embedding_dim, padding_idx)
         self.counts_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value)
 
-    def forward(self, genes: Tensor, counts: Tensor) -> Tensor:
-        x_g = self.gene_encoder(genes)
+    def forward(self, index: Tensor, counts: Tensor) -> Tensor:
+        x_g = self.gene_encoder(index)
         x_c = self.counts_encoder(counts)
         x = x_g + x_c
         return x

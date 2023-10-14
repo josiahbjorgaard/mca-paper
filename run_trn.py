@@ -31,6 +31,7 @@ import torch_xla.distributed.xla_backend
 from neuron_utils import *
 
 from .biozorromodel import BioZorro, BioZorroLayer
+from .encoders import BioZorroCollator
 
 # we need to use the torch_xla checkpoint. Otherwise the some checkpointing patterns will be eliminated by the compiler common expression elimination
 torch.utils.checkpoint.checkpoint = torch_xla.utils.checkpoint.checkpoint
@@ -159,8 +160,18 @@ def main():
         set_seed(args.seed, device_specific=False)
 
     #### MODEL
-    config = AutoConfig.from_pretrained(args.model_name_or_path)
-    model = BioZorro(config)
+    config = {
+        "dim": 512, #hidden size
+        "depth": 7, #layers
+        "spliced_input_dim": 1024, #embedding_size
+        "unspliced_input_dim": 1024,
+        "dim_head":64, #don't know, head hidden size?
+        "heads": 8, #num heads
+        "ff_mult": 4, #Feed forward multiplier
+        "num_fusion_tokens": 16,
+    }
+
+    model = BioZorro(**config)
     
     if xm.is_master_ordinal(local=False):
         n_params = count_parameters(model)
@@ -192,13 +203,8 @@ def main():
     train_dataset = lm_datasets["train"]
     eval_dataset = lm_datasets["test"]
     
-    #Geneformer Collator
-    with open("/efs-private/Genecorpus-30M/token_dictionary.pkl", "rb") as fp:
-        token_dictionary = pickle.load(fp)
-    default_data_collator = DataCollatorForLanguageModeling(
-        tokenizer=precollator, mlm=True, mlm_probability=0.15,
-        pad_to_multiple_of=2048
-        )
+    #BioZorro Collator
+    default_data_collator = BioZorroCollator(pad_len=2048, pad_token=0)
 
     # DataLoaders creation:
     train_dataloader = DataLoader(
@@ -258,7 +264,7 @@ def main():
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
         experiment_config["n_params"] = n_params
         wandb.init(
-                project="Geneformer Pretraining",
+                project="BioZorro",
                 config=experiment_config,
                 entity="josiahbjorgaard",
                 )
