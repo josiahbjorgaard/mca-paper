@@ -200,6 +200,7 @@ class BioZorroPretrainingLoss(nn.Module):
         outputs.losses.contrastive_loss = self.contrastive_loss(outputs.spliced, outputs.unspliced)
         outputs.losses.fusion_loss_spliced = self.fusion_loss_spliced(outputs.spliced, outputs.fusion)
         outputs.losses.fusion_loss_unspliced = self.fusion_loss_unspliced(outputs.unspliced, outputs.fusion)
+        outputs.loss = outputs.losses.contrastive_loss + outputs.losses.fusion_loss_spliced + outputs.losses.fusion_loss_unspliced
         return outputs
 
 

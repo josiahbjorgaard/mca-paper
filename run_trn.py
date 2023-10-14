@@ -163,8 +163,8 @@ def main():
     config = {
         "dim": 512, #hidden size
         "depth": 7, #layers
-        "spliced_input_dim": 1024, #embedding_size
-        "unspliced_input_dim": 1024,
+        "spliced_input_dim": 512, #embedding_size
+        "unspliced_input_dim": 512,
         "dim_head":64, #don't know, head hidden size?
         "heads": 8, #num heads
         "ff_mult": 4, #Feed forward multiplier
@@ -197,9 +197,14 @@ def main():
 
     #### DATASET
     xm.master_print("Loading tokenized dataset from ", args.load_tokenized_dataset)
-    lm_datasets = load_from_disk(args.load_tokenized_dataset)
-    for part in lm_datasets.keys():
-        lm_datasets[part] = lm_datasets[part].remove_columns("length")
+    lm_datasets = load_from_disk(args.load_tokenized_dataset).with_format('torch')
+    keep =  ['spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
+    remove = list()
+    for key in lm_datasets.features.keys():
+        if key not in keep:
+            remove.append(key)
+    lm_datasets = lm_datasets.remove_columns(remove)
+    lm_datasets = lm_datasets.train_test_split(0.1)
     train_dataset = lm_datasets["train"]
     eval_dataset = lm_datasets["test"]
     
