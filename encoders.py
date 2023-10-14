@@ -16,8 +16,6 @@ class BioZorroCollator:
             collated_data[k]=torch.stack(v)
         return collated_data
 
-biozorro_collator(data)
-
 class BioZorroEncoder(nn.Module):
     def __init__(self,
                  num_embeddings = 18000, #Vocab size
