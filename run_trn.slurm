@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --nodes=2
+#SBATCH --nodes=1
 ##SBATCH --cpus-per-task=124
 #SBATCH --tasks-per-node=1
 #SBATCH --exclusive
@@ -13,4 +13,4 @@ ulimit -Sn
 ulimit -Hn
 ulimit -u
 ulimit -c
-srun ./run_clm_geneformer_pretraining.sh BF16 #MIXED
+srun ./run_trn.sh BF16 #MIXED

@@ -61,7 +61,7 @@ export TF_NUM_INTEROP_THREADS=8192
 export NEURON_ENABLE_NOSEED_DROPOUT=1
 
 GRAD_ACCUM_STEP=1
-BATCH_SIZE=1 #1
+BATCH_SIZE=4 #1
 #MODEL_CONFIG="/efs-private/Geneformer/geneformer-12L-30M" #"config_1p5B_gpt2.json"
 MODEL_SIZE=$(echo $CONFIG | grep -m 1 -Eo '[0-9MBp]+' | head -n1 | tr -d '\n')
 #DATASET_CONFIG=$2
@@ -80,10 +80,10 @@ if [[ "$NEURON_EXTRACT_GRAPHS_ONLY" == "1" ]]; then
 fi
 # linear doesn't seem to work
 #    --config_name "/efs-private/Geneformer/config.json" \
-torchrun $DISTRIBUTED_ARGS run_clm_no_trainer_geneformer_pretraining.py \
-    --model_name_or_path "/efs-private/Geneformer/geneformer-config1" \
+torchrun $DISTRIBUTED_ARGS run_trn.py \
+    --model_name_or_path "" \
     --block_size 2048 \
-    --load_tokenized_dataset "/shared/genecorpus_30M_1p_2048.dataset" \
+    --load_tokenized_dataset "/efs-private/multimodal/data/filtered_protein_mrna_genes" \
     --tokenizer_name "None" \
     --dataset_config_name $DATASET_CONFIG  \
     --per_device_train_batch_size $BATCH_SIZE \
@@ -97,6 +97,5 @@ torchrun $DISTRIBUTED_ARGS run_clm_no_trainer_geneformer_pretraining.py \
     --seed 1234 \
     --num_warmup_steps 75 \
     --use_grad_clipping \
-    --use_fsdp \
     --output_dir geneformer_test_1 \
     |& tee $LOG_FILE_NAME

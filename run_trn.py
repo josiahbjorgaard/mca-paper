@@ -30,9 +30,10 @@ from torch_xla.distributed.fsdp.wrap import transformer_auto_wrap_policy
 import torch_xla.distributed.xla_backend
 from neuron_utils import *
 
-from .biozorromodel import BioZorro, BioZorroLayer
-from .encoders import BioZorroCollator
+from biozorromodel import BioZorro, BioZorroLayer
+from encoders import BioZorroCollator
 
+from accelerate.logging import get_logger
 # we need to use the torch_xla checkpoint. Otherwise the some checkpointing patterns will be eliminated by the compiler common expression elimination
 torch.utils.checkpoint.checkpoint = torch_xla.utils.checkpoint.checkpoint
 
@@ -80,9 +81,6 @@ def get_param_norm(
 
     if args.use_fsdp:
         total_norm = model.all_reduce_op(xm.REDUCE_SUM, local_norm, groups=groups)
-        total_norm = total_norm**(1.0 / norm_type)
-    elif args.use_zero1:
-        total_norm = xm.all_reduce(xm.REDUCE_SUM, local_norm, groups=groups, pin_layout=False)
         total_norm = total_norm**(1.0 / norm_type)
     else:
         total_norm = local_norm**(1.0 / norm_type)
@@ -255,9 +253,10 @@ def main():
         num_training_steps=args.max_train_steps,
     )
 
-    # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
-    if accelerator.distributed_type == DistributedType.TPU:
-        model.tie_weights()
+    if args.use_fsdp:
+        # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
+        if accelerator.distributed_type == DistributedType.TPU:
+            model.tie_weights()
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     args.max_train_steps = args.num_train_epochs * len(train_dataloader) 
