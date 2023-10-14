@@ -156,13 +156,13 @@ class Attention(nn.Module):
 class BioZorroLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
-        self.layer = nn.ModuleList([
-                        Attention(dim=dim, dim_head=dim_head, heads=heads),
-                        FeedForward(dim=dim, mult=ff_mult)
-                    ])
-
-    def forward(self, batch):
-        return self.layer(batch)
+        self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.ff = FeedForward(dim=dim, mult=ff_mult)
+                 
+    def forward(self, batch, zorro_mask):
+        batch = self.attn(batch, attn_mask=zorro_mask) + batch
+        batch = self.ff(batch) + batch
+        return batch
 
 @dataclass
 class BioZorroPretrainingLossesCollection(ModelOutput):
@@ -217,6 +217,7 @@ class BioZorro(nn.Module):
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
+            vocab_size=20000,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED, TokenTypes.FUSION),
             loss=BioZorroPretrainingLoss()
     ):
@@ -232,13 +233,13 @@ class BioZorro(nn.Module):
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
 
         self.spliced_embedding = BioZorroEncoder(
-            num_embeddings = 17800, #vocab size
-            embedding_dim = 512, #largest size
+            num_embeddings = vocab_size, #vocab size
+            embedding_dim = spliced_input_dim, #largest size
         )
 
         self.unspliced_embedding = BioZorroEncoder(
-            num_embeddings = 17800, #vocab size
-            embedding_dim = 512, #largest size
+            num_embeddings = vocab_size, #vocab size
+            embedding_dim = unspliced_input_dim, #largest size
         )
 
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
@@ -263,8 +264,8 @@ class BioZorro(nn.Module):
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
 
-        spliced_tokens = self.spliced_to_tokens(spliced_index, spliced_data)
-        unspliced_tokens = self.unspliced_to_tokens(unspliced_index, unspliced_data)
+        spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
+        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
         # construct all tokens
@@ -302,9 +303,8 @@ class BioZorro(nn.Module):
 
         # attend and feedforward
 
-        for attn, ff in self.layers:
-            tokens = attn(tokens, attn_mask=zorro_mask) + tokens
-            tokens = ff(tokens) + tokens
+        for layer in self.layers:
+            tokens = layer(tokens, zorro_mask)
 
         tokens = self.norm(tokens)
 
