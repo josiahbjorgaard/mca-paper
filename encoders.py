@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn.functional import pad
+from torch import Tensor
 class BioZorroCollator:
     def __init__(self, pad_token=0, pad_len=2048):
         self.pad_token = pad_token
