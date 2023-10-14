@@ -2,6 +2,9 @@ import torch
 from torch import nn
 from torch.nn.functional import pad
 from torch import Tensor
+from typing import Optional
+
+
 class BioZorroCollator:
     def __init__(self, pad_token=0, pad_len=2048):
         self.pad_token = pad_token
@@ -22,7 +25,10 @@ class BioZorroEncoder(nn.Module):
                  num_embeddings = 18000, #Vocab size
                  embedding_dim = 512, #size of embedding vector
                  padding_idx = 0, #padding (no entry) token
+                 dropout = 0.0,
+                 max_value = 10000,
                  ):
+        super().__init__()
         self.gene_encoder = GeneEncoder(num_embeddings, embedding_dim, padding_idx)
         self.counts_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value)
 
