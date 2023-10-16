@@ -27,6 +27,11 @@ config.warmup_steps = 1000
 config.lr = 1e-4
 config.output_dir = "test_output1"
 config.hidden_size = 512
+config.layers = 7
+config.dim_heads = 64,  # don't know, head hidden size?
+config.heads = 8,  # num heads
+config.ff_mult = 4,  # Feed forward multiplier
+config.num_fusion_tokens = 16,
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
 
 logging.basicConfig(level=logging.INFO)
@@ -66,6 +71,7 @@ print(f"Number of training samples: {len(lm_datasets['train'])}")
 wandb.init(
         entity="josiahbjorgaard",
         project="Multimodal",
+        config=dict(config),
     )
 
 ## Create a subsed of data sampler, for parallelizing the training across multiple cores
@@ -73,7 +79,7 @@ if world_size > 1:
     train_sampler = DistributedSampler(
         lm_datasets["train"],
         num_replicas=world_size,
-        rank=xm.get_ordinal(),
+        #rank=xm.get_ordinal(), #Default to get from current distributed group
         shuffle=True,
     )
 else:
@@ -94,14 +100,14 @@ print(f"Number of batches: {len(train_dl)}")
 
 #### MODEL
 model_config = {
-    "dim": 512, #hidden size
-    "depth": 7, #layers
-    "spliced_input_dim": 512, #embedding_size
-    "unspliced_input_dim": 512,
-    "dim_head":64, #don't know, head hidden size?
-    "heads": 8, #num heads
-    "ff_mult": 4, #Feed forward multiplier
-    "num_fusion_tokens": 16,
+    "dim": config.hidden_size, #hidden size
+    "depth": config.layers, #layers
+    "spliced_input_dim": config.hidden_size, #embedding_size
+    "unspliced_input_dim": config.hidden_size,
+    "dim_head": config.dim_head, #don't know, head hidden size?
+    "heads": config.heads, #num heads
+    "ff_mult": config.ff_mult, #Feed forward multiplier
+    "num_fusion_tokens": config.num_fusion_tokens,
 }
 
 model = BioZorro(**model_config).to(device)
@@ -137,7 +143,8 @@ for epoch in range(config.epochs):
         optimizer.step()
         progress_bar.update(1)
         wandb.log({"loss":loss.detach().to("cpu")})
-        #
+        wandb.log(outputs.losses.detach().to("cpu"))
+        #outputs.losses.contrastive_loss + outputs.losses.fusion_loss_spliced + outputs.losses.fusion_loss_unspliced
     #if xm.is_master_ordinal(local=False):
     #wandb.log({"epoch_loss":loss.detach().to("cpu")})
     #logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
