@@ -22,7 +22,7 @@ class BioZorroCollator:
 
 class BioZorroEncoder(nn.Module):
     def __init__(self,
-                 num_embeddings = 18000, #Vocab size
+                 num_embeddings = 18817, #Vocab size
                  embedding_dim = 512, #size of embedding vector
                  padding_idx = 0, #padding (no entry) token
                  dropout = 0.0,
