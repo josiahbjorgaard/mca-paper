@@ -13,56 +13,25 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from transformers import get_scheduler
-
 from biozorromodel import BioZorro
 from encoders import BioZorroCollator
 
 from yacs.config import CfgNode as CN
-from collections import defaultdict
+
 import wandb 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-def get_param_norm(model,norm_type=2.0):
-    norm_type = float(norm_type)
-    parameters = model.parameters()
-    local_norm = torch.DoubleTensor([0.0]).to(next(iter(parameters)).device)
-    grads_for_norm = []
-    for param in parameters:
-        param_norm = torch.norm(param.detach(), norm_type)
-        local_norm += param_norm ** norm_type
-    total_norm = local_norm**(1.0 / norm_type)
-    return total_norm
-
-def get_grad_norm(model,norm_type=2.0):
-    norm_type = float(norm_type)
-    parameters = model.parameters()
-    local_norm = torch.FloatTensor([float(0.0)]).to(next(iter(parameters)).device)
-    grads_for_norm = []
-    for param in parameters:
-        grad_not_none = param.grad is not None
-        if grad_not_none:
-            grad = param.grad.detach()
-            grad_norm = torch.norm(grad, norm_type)
-            local_norm += grad_norm ** norm_type
-    total_norm = local_norm**(1.0 / norm_type)
-    return total_norm
-
 config = CN()
-config.epochs = 4
+config.epochs = 10
 config.batch_size = 16
-config.num_warmup_steps = 1000
-config.lr_scheduler_type = "cosine"
+config.warmup_steps = 1000
 config.lr = 1e-4
 config.output_dir = "test_output1"
 config.hidden_size = 512
 config.layers = 7
-config.dim_head = 64  # don't know, head hidden size?
-config.heads = 4  # num heads
-config.ff_mult = 4  # Feed forward multiplier
-config.num_fusion_tokens = 16
+config.dim_heads = 64,  # don't know, head hidden size?
+config.heads = 8,  # num heads
+config.ff_mult = 4,  # Feed forward multiplier
+config.num_fusion_tokens = 16,
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
 
 logging.basicConfig(level=logging.INFO)
@@ -75,11 +44,6 @@ device = "cuda"
 
 #torch.distributed.init_process_group(device)
 torch.distributed.init_process_group()
-rank = torch.distributed.get_rank()
-print(f"Start running basic DDP example on rank {rank}.")
-# create model and move it to GPU with id rank
-device = rank % torch.cuda.device_count()
-
 # Get the global number of workes.
 #world_size = xm.xrt_world_size()
 world_size = torch.distributed.get_world_size()
@@ -99,23 +63,6 @@ lm_datasets = lm_datasets.train_test_split(0.1)
 #BioZorro Collator
 default_data_collator = BioZorroCollator(pad_len=1024, pad_token=0)
 
-#### MODEL
-model_config = {
-    "dim": config.hidden_size, #hidden size
-    "depth": config.layers, #layers
-    "spliced_input_dim": config.hidden_size, #embedding_size
-    "unspliced_input_dim": config.hidden_size,
-    "dim_head": config.dim_head, #don't know, head hidden size?
-    "heads": config.heads, #num heads
-    "ff_mult": config.ff_mult, #Feed forward multiplier
-    "num_fusion_tokens": config.num_fusion_tokens,
-}
-print(model_config)
-
-model = BioZorro(**model_config).to(device)
-
-config.n_params = count_parameters(model)
-print(f"Number of parameters: {config.n_params/10**6}M")
 print(f"Number of training samples: {len(lm_datasets['train'])}")
 
 
@@ -148,20 +95,36 @@ train_dl = DataLoader(
 sample = next(iter(train_dl))
 [print(f"{k}:{v.shape}") for k,v in sample.items()]
 print(f"Number of batches: {len(train_dl)}")
+## Loading a subset of the data in the different Neuron Cores provided as input
+#    train_device_loader = pl.MpDeviceLoader(train_dl, device)
+
+#### MODEL
+model_config = {
+    "dim": config.hidden_size, #hidden size
+    "depth": config.layers, #layers
+    "spliced_input_dim": config.hidden_size, #embedding_size
+    "unspliced_input_dim": config.hidden_size,
+    "dim_head": config.dim_head, #don't know, head hidden size?
+    "heads": config.heads, #num heads
+    "ff_mult": config.ff_mult, #Feed forward multiplier
+    "num_fusion_tokens": config.num_fusion_tokens,
+}
+
+model = BioZorro(**model_config).to(device)
+
+## Haven't yet tried freezing layers
+#freeze_layers = config.freeze_layers
+#if freeze_layers is not None:
+#    modules_to_freeze = model.backbone.encoder.layer[:freeze_layers]
+#    for module in modules_to_freeze:
+#        for param in module.parameters():
+#            param.requires_grad = False
 
 current_timestamp = strftime("%Y-%m-%d-%H-%M", gmtime())
 
+optimizer = AdamW(model.parameters(), lr=config.lr * world_size)
+
 num_training_steps = config.epochs * len(train_dl)
-
-optimizer = AdamW(model.parameters(), lr=config.lr) # * world_size)
-
-lr_scheduler = get_scheduler(
-        name=config.lr_scheduler_type,
-        optimizer=optimizer,
-        num_warmup_steps=config.num_warmup_steps,
-        num_training_steps=num_training_steps,
-    )
-
 progress_bar = tqdm(range(num_training_steps))
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
@@ -178,30 +141,14 @@ for epoch in range(config.epochs):
         ## xm.optimizer_step is performing the sum of all the gradients updates done in the different Cores
 #           xm.optimizer_step(optimizer)
         optimizer.step()
-        lr_scheduler.step()
         progress_bar.update(1)
         wandb.log({"loss":loss.detach().to("cpu")})
-        wandb.log({k:v.detach().to("cpu") for k,v in outputs.losses.items()})
-        wandb.log({"param_norm":get_param_norm(model).to("cpu"),"grad_norm":get_grad_norm(model).to("cpu")})
-        wandb.log({"lr":optimizer.param_groups[0]['lr']})
-    #outputs.losses.contrastive_loss + outputs.losses.fusion_loss_spliced + outputs.losses.fusion_loss_unspliced
+        wandb.log(outputs.losses.detach().to("cpu"))
+        #outputs.losses.contrastive_loss + outputs.losses.fusion_loss_spliced + outputs.losses.fusion_loss_unspliced
     #if xm.is_master_ordinal(local=False):
     #wandb.log({"epoch_loss":loss.detach().to("cpu")})
     #logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
-    #Evaluation
-    model.eval()
-    with torch.no_grad():
-        epoch_loss = 0.0
-        losses = defaultdict(torch.Tensor(0.0).to("cpu"))
-        for i, batch in enumerate(tqdm(eval_dl)):
-            outputs = model(**batch)
-            loss = outputs.loss
-            global_eval_step+=1
-            epoch_loss += running_loss_reduced
-            for k,v in outputs.losses.items():
-                losses[k]+=v.detach().to("cpu")
-            wandb.log({k:v.detach().to("cpu") for k,v in outputs.losses.items()})
-        wandb.log({'epoch'+k:v/len(eval_dl) for k,v in losses.items()})
+
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 ## Using XLA for saving model after training for being sure only one copy of the model is saved
