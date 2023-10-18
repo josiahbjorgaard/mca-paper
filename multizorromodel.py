@@ -204,13 +204,15 @@ class BioZorroPretrainingLoss(nn.Module):
         outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
         outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
         outputs.fusion = pooled_tokens[:, 3, :].squeeze(1)
-        outputs.losses.contrastive_loss_spliced_unspliced = self..contrastive_loss_spliced_unspliced(outputs.unspliced, outputs.unspliced)
-        outputs.losses.contrastive_loss_spliced_expression = self..contrastive_loss_spliced_expression(outputs.spliced, outputs.expression)
-        outputs.losses.contrastive_loss_unspliced_expression = self..contrastive_loss_unspliced_expression(outputs.unspliced, outputs.expression)
+        outputs.losses.contrastive_loss_spliced_unspliced = self.contrastive_loss_spliced_unspliced(outputs.unspliced, outputs.unspliced)
+        outputs.losses.contrastive_loss_spliced_expression = self.contrastive_loss_spliced_expression(outputs.spliced, outputs.expression)
+        outputs.losses.contrastive_loss_unspliced_expression = self.contrastive_loss_unspliced_expression(outputs.unspliced, outputs.expression)
         outputs.losses.fusion_loss_spliced = self.fusion_loss_spliced(outputs.spliced, outputs.fusion)
         outputs.losses.fusion_loss_unspliced = self.fusion_loss_unspliced(outputs.unspliced, outputs.fusion)
         outputs.losses.fusion_loss_expression = self.fusion_loss_expression(outputs.expression,outputs.fusion)
-        outputs.loss = outputs.losses.contrastive_loss + \
+        outputs.loss = outputs.losses.contrastive_loss_spliced_unspliced + \
+                       outputs.losses.contrastive_loss_spliced_expression + \
+                       outputs.losses.contrastive_loss_unspliced_expression + \
                        outputs.losses.fusion_loss_spliced + \
                        outputs.losses.fusion_loss_unspliced + \
                        outputs.losses .fusion_loss_expression
