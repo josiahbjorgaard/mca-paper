@@ -229,9 +229,9 @@ class BioZorro(nn.Module):
             self,
             dim,
             depth,
-            spliced_input_dim,
-            unspliced_input_dim,
-            expression_input_dim,
+            #spliced_input_dim,
+            #unspliced_input_dim,
+            #expression_input_dim,
             dim_head=64,
             heads=8,
             ff_mult=4,
@@ -254,15 +254,15 @@ class BioZorro(nn.Module):
 
         self.spliced_embedding = BioZorroEncoder(
             num_embeddings = vocab_size, #vocab size
-            embedding_dim = spliced_input_dim,
+            embedding_dim = dim #spliced_input_dim,
         )
         self.unspliced_embedding = BioZorroEncoder(
             num_embeddings = vocab_size, #vocab size
-            embedding_dim = unspliced_input_dim, #Same as layer dim?
+            embedding_dim = dim #unspliced_input_dim, #Same as layer dim?
         )
         self.expression_embedding = BioZorroEncoder(
             num_embeddings = vocab_size, #vocab size
-            embedding_dim = expression_input_dim, #Same as layer dim?
+            embedding_dim = dim #expression_input_dim, #Same as layer dim?
         )
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
 

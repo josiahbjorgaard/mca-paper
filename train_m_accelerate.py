@@ -72,7 +72,7 @@ config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = "test_output6"
 config.hidden_size = 512
-config.layers = 4
+config.layers = 10
 config.dim_head = 64  # don't know, head hidden size?
 config.heads = 8  # num heads
 config.ff_mult = 4  # Feed forward multiplier
@@ -80,13 +80,13 @@ config.num_fusion_tokens = 16
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
 config.ds_frac = 0.1 
 config.ds_seed = 42
-config.model = 3
+config.model = 1
 
 if config.model == 3:
     from multizorromodel import BioZorro
-elif config.model ==2:
+elif config.model == 2:
     from biozorromodel import BioZorro
-elif config.model ==1:
+elif config.model == 1:
     from unizorromodel import BioZorro
 
 logging.basicConfig(level=logging.INFO)
@@ -137,9 +137,9 @@ default_data_collator = BioZorroCollator(pad_len=1024, pad_token=0)
 model_config = {
     "dim": config.hidden_size, #hidden size
     "depth": config.layers, #layers
-    "spliced_input_dim": config.hidden_size, #embedding_size
-    "unspliced_input_dim": config.hidden_size,
-    "expression_input_dim": config.hidden_size,
+#    "spliced_input_dim": config.hidden_size, #embedding_size
+#    "unspliced_input_dim": config.hidden_size,
+#    "expression_input_dim": config.hidden_size,
     "dim_head": config.dim_head, #don't know, head hidden size?
     "heads": config.heads, #num heads
     "ff_mult": config.ff_mult, #Feed forward multiplier
@@ -240,7 +240,7 @@ for epoch in range(config.epochs):
         lr_scheduler.step()
         if accelerator.is_main_process:
             progress_bar.update(world_size)
-        accelerator.log({"total_loss":loss.detach().to("cpu")
+        accelerator.log({"total_loss":loss.detach().to("cpu")})
         accelerator.log({k:v.detach().to("cpu") for k,v in outputs.losses.items()})
         accelerator.log({"param_norm":get_param_norm(model).to("cpu"),"grad_norm":get_grad_norm(model).to("cpu")})
         accelerator.log({"lr":optimizer.param_groups[0]['lr']})
