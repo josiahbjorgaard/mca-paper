@@ -1,5 +1,6 @@
 from datasets import load_from_disk
-
+from contextlib import redirect_stdout
+import json
 import logging
 import os
 from time import gmtime, strftime
@@ -20,7 +21,7 @@ from encoders import BioZorroCollator
 from yacs.config import CfgNode as CN
 from collections import defaultdict
 import wandb 
-
+from datetime import datetime
 from accelerate import Accelerator
 
 accelerator = Accelerator(log_with="wandb")
@@ -70,17 +71,24 @@ config.batch_size = 2
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
-config.output_dir = "test_output6"
+config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
 config.hidden_size = 512
-config.layers = 10
+config.layers = 2
 config.dim_head = 64  # don't know, head hidden size?
 config.heads = 8  # num heads
 config.ff_mult = 4  # Feed forward multiplier
 config.num_fusion_tokens = 16
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
-config.ds_frac = 0.1 
+config.ds_frac = 0.001 
 config.ds_seed = 42
-config.model = 1
+config.model = 3
+"""
+# Create conf   
+config = CN()
+# Allow creating new keys recursively.
+config.set_new_allowed(True)
+config.merge_from_file(filename)
+"""
 
 if config.model == 3:
     from multizorromodel import BioZorro
@@ -263,6 +271,12 @@ for epoch in range(config.epochs):
             accelerator.log({"val_step_"+k:v.detach().to("cpu") for k,v in outputs.losses.items()})
         accelerator.log({'val_epoch_'+k:v/len(eval_dl) for k,v in losses.items()})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
+os.makedirs(config.output_dir, exist_ok=True)
+with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
+    with redirect_stdout(f): print(config.dump())
+with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
+    json.dump(model_config, f)
+accelerator.save_model(model, config.output_dir, safe_serialization=True)
 accelerator.end_training()
 ## Using XLA for saving model after training for being sure only one copy of the model is saved
 #os.makedirs(config.output_dir, exist_ok=True)
