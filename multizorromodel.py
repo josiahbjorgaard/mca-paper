@@ -25,7 +25,7 @@ from encoders import BioZorroEncoder
 class TokenTypes(Enum):
     SPLICED = 0  # -> AUDIO
     UNSPLICED = 1  # -> VIDEO
-    EXPRESS = 2
+    EXPRESSION = 2
     FUSION = 3
     GLOBAL = 4
 
@@ -167,11 +167,13 @@ class BioZorroLayer(nn.Module):
 
 @dataclass
 class BioZorroPretrainingLossesCollection(ModelOutput):
-    contrastive_loss: Optional[Tensor] = None
+    contrastive_loss_spliced_unspliced: Optional[Tensor] = None
+    contrastive_loss_spliced_expression: Optional[Tensor] = None
+    contrastive_loss_unspliced_expression: Optional[Tensor] = None
     fusion_loss_spliced: Optional[Tensor] = None
     fusion_loss_unspliced: Optional[Tensor] = None
     fusion_loss_expression: Optional[Tensor] = None
-
+    
 
 @dataclass
 class BioZorroPretrainingLossOutput(ModelOutput):
