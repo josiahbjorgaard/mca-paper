@@ -289,22 +289,7 @@ class BioZorro(nn.Module):
 #            expression_attn_mask: Optional[Tensor] = None,
             return_token_indices: Optional[Tuple[int]] = None
     ):
-        if not expression_data:
-            batch, device = spliced_data.shape[0], spliced_data.device
-        elif not spliced_data:
-            batch, device = expression_data.shape[0], spliced_data.device
-        if not unspliced_data:
-            unspliced_data = torch.empty(0,dtype=expression_data.dtype, device=expression_data.device)
-        if not spliced_data:
-            spliced_data = torch.empty(0,dtype=expression_data.dtype, device=expression_data.device)
-        if not unspliced_index:
-            unspliced_index = torch.empty(0,dtype=expression_index.dtype, device=expression_index.device)
-        if not spliced_index:
-            spliced_index = torch.empty(0,dtype=expression_index.dtype, device=expression_index.device)
-        if not expression_index:
-            expression_index = torch.empty(0,dtype=spliced_index.dtype, device=spliced_index.device)
-        if not expression_data:
-            expression_data = torch.empty(0,dtype=spliced_data.dtype, device=spliced_data.device)
+        batch, device = spliced_data.shape[0], spliced_data.device
 
         spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
         unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
