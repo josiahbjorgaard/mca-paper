@@ -284,6 +284,9 @@ class BioZorro(nn.Module):
             unspliced_index,
             expression_data,
             expression_index,
+#            spliced_attn_mask: Optional[Tensor] = None,
+#            unspliced_attn_mask: Optional[Tensor] = None,
+#            expression_attn_mask: Optional[Tensor] = None,
             return_token_indices: Optional[Tuple[int]] = None
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
@@ -327,7 +330,19 @@ class BioZorro(nn.Module):
 
         # fusion can attend to everything
 
-        zorro_mask = zorro_mask | token_types_attend_from == TokenTypes.FUSION.value
+        zorro_mask = zorro_mask | (token_types_attend_from == TokenTypes.FUSION.value)
+
+        # Padding tokens mask
+        # Using the index data, but should use an input attention mask properly
+        # And a custom Padding token via the Dataloader/collator
+        #if spliced_attn_mask:
+        padding, ps = pack((
+            spliced_index == 0,
+            unspliced_index == 0,
+            expression_index == 0), 'b *')
+        padding_mask = repeat(tokens, 'b i -> b i j', j=padding.shape[-1])
+
+        zorro_mask = zorro_mask * padding_mask
 
         # attend and feedforward
 
