@@ -229,9 +229,7 @@ class BioZorro(nn.Module):
             self,
             dim,
             depth,
-            #spliced_input_dim,
-            #unspliced_input_dim,
-            #expression_input_dim,
+            n_modal=2,
             dim_head=64,
             heads=8,
             ff_mult=4,
@@ -252,18 +250,8 @@ class BioZorro(nn.Module):
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.heads = heads # Added
-        self.spliced_embedding = BioZorroEncoder(
-            num_embeddings = vocab_size, #vocab size
-            embedding_dim = dim #spliced_input_dim,
-        )
-        self.unspliced_embedding = BioZorroEncoder(
-            num_embeddings = vocab_size, #vocab size
-            embedding_dim = dim #unspliced_input_dim, #Same as layer dim?
-        )
-        self.expression_embedding = BioZorroEncoder(
-            num_embeddings = vocab_size, #vocab size
-            embedding_dim = dim #expression_input_dim, #Same as layer dim?
-        )
+        # TODO: customize the embeddings foreach modality
+        self.embeddings = [BioZorroEncoder( num_embeddings=vocab_size, embedding_dim = dim) for i in range(n_modal)]
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
 
         # transformer
@@ -278,42 +266,27 @@ class BioZorro(nn.Module):
     def forward(
             self,
             *,
-            spliced_data: Optional[Tensor] = None,
-            spliced_index: Optional[Tensor] = None,
-            unspliced_data: Optional[Tensor] = None,
-            unspliced_index: Optional[Tensor] = None,
-            expression_data: Optional[Tensor] = None,
-            expression_index: Optional[Tensor] = None,
-#            spliced_attn_mask: Optional[Tensor] = None,
-#            unspliced_attn_mask: Optional[Tensor] = None,
-#            expression_attn_mask: Optional[Tensor] = None,
+            continuous,  #Continuous values
+            discrete,  #Discrete (categories)
             return_token_indices: Optional[Tuple[int]] = None
     ):
-        batch, device = spliced_data.shape[0], spliced_data.device
+        batch, modes, device = continuous.shape[0], continuous.shape[1], continuous.device
 
-        spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
-        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
-        for i in range(batch):
-            for j in range(5):
-                print(f"Last bit of spliced tokens {i},{j},{unspliced_index[i,-5:]}: {unspliced_tokens[i,-5:,j]}")
-                print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
-        expression_tokens = self.expression_embedding(expression_index, expression_data)
+        modal_tokens = [self.embedding(discrete[:, :, m], continuous[:, :, m]) for m in range(modes)]
+
+        #for i in range(batch):
+        #    for j in range(5):
+        #        print(f"Last bit of spliced tokens {i},{j},{unspliced_index[i,-5:]}: {unspliced_tokens[i,-5:,j]}")
+        #        print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
+
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
         # construct all tokens
 
-        spliced_tokens, \
-        unspliced_tokens, \
-        expression_tokens, \
-        fusion_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'),
-                               (spliced_tokens, unspliced_tokens, expression_tokens, fusion_tokens))
+        all_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'),
+                               modal_tokens.append(fusion_tokens))
 
-        tokens, ps = pack((
-            spliced_tokens,
-            unspliced_tokens,
-            expression_tokens,
-            fusion_tokens
-        ), 'b * d')
+        tokens, ps = pack(all_tokens, 'b * d')
 
         # construct mask (thus zorro)
 
