@@ -143,7 +143,7 @@ class Attention(nn.Module):
 
         q = q * self.scale
         sim = einsum('b h i d, b h j d -> b h i j', q, k)
-
+        
         if exists(attn_mask):
             sim = sim.masked_fill(~attn_mask, -torch.finfo(sim.dtype).max)
 
@@ -251,7 +251,7 @@ class BioZorro(nn.Module):
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
-
+        self.heads = heads # Added
         self.spliced_embedding = BioZorroEncoder(
             num_embeddings = vocab_size, #vocab size
             embedding_dim = dim #spliced_input_dim,
@@ -339,11 +339,17 @@ class BioZorro(nn.Module):
         padding, ps = pack((
             spliced_index == 0,
             unspliced_index == 0,
-            expression_index == 0), 'b *')
-        padding_mask = repeat(padding, 'b i -> b i j', j=padding.shape[-1])
-
+            expression_index == 0,
+            torch.zeros(fusion_tokens.shape[0],
+                fusion_tokens.shape[1],
+                dtype=torch.bool,
+                device=fusion_tokens.device)),  #No mask on fusion tokens
+            'b *')
+        #Not sure if I have i, j in the right order below. Which dimension should it repeat on?
+        padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
         zorro_mask = zorro_mask * padding_mask
-
+        zorro_mask = repeat(zorro_mask, 'b i j -> b h i j', h=self.heads)
+        
         # attend and feedforward
 
         for layer in self.layers:
@@ -371,6 +377,11 @@ class BioZorro(nn.Module):
         # global queries can attend to all tokens
         pool_mask = pool_mask | rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
             token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value
+
+        #Padding mask to pool mask
+        padding_mask = repeat(padding, 'b j -> b i j', i=pool_mask.shape[0])
+        pool_mask = pool_mask * padding_mask
+        pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
 
         pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask) + return_tokens
 

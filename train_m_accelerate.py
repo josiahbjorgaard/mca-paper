@@ -73,13 +73,13 @@ config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
 config.hidden_size = 512
-config.layers = 2
-config.dim_head = 64  # don't know, head hidden size?
+config.layers = 4
+config.dim_head = 64  # heads*dim_head = intermeidate size?
 config.heads = 8  # num heads
 config.ff_mult = 4  # Feed forward multiplier
 config.num_fusion_tokens = 16
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
-config.ds_frac = 0.001 
+config.ds_frac = 0.1 
 config.ds_seed = 42
 config.model = 3
 """
