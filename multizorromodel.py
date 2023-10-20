@@ -340,7 +340,7 @@ class BioZorro(nn.Module):
             spliced_index == 0,
             unspliced_index == 0,
             expression_index == 0), 'b *')
-        padding_mask = repeat(tokens, 'b i -> b i j', j=padding.shape[-1])
+        padding_mask = repeat(padding, 'b i -> b i j', j=padding.shape[-1])
 
         zorro_mask = zorro_mask * padding_mask
 
