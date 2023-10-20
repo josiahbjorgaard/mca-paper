@@ -16,6 +16,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from transformers import get_scheduler
 
+from multizorromodel import BioZorro
 from encoders import BioZorroCollator
 
 from yacs.config import CfgNode as CN
@@ -81,7 +82,7 @@ config.num_fusion_tokens = 16
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
 config.ds_frac = 0.1 
 config.ds_seed = 42
-config.model = 3
+config.model = 1
 """
 # Create conf   
 config = CN()
@@ -89,13 +90,6 @@ config = CN()
 config.set_new_allowed(True)
 config.merge_from_file(filename)
 """
-
-if config.model == 3:
-    from multizorromodel import BioZorro
-elif config.model == 2:
-    from biozorromodel import BioZorro
-elif config.model == 1:
-    from unizorromodel import BioZorro
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -127,7 +121,7 @@ if config.model ==3:
 elif config.model ==2:
     keep = ['spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
 elif config.model ==1:
-    keep = ['spliced_index', 'spliced_data']
+    keep = ['expression_index', 'expression_data']
 else:
     raise Exception()
 
