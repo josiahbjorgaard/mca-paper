@@ -202,10 +202,10 @@ class BioZorroPretrainingLoss(nn.Module):
             pooled_tokens
     ):
         outputs = BioZorroPretrainingLossOutput()
-        outputs.spliced = pooled_tokens[:, 0, :].squeeze(1)
-        outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
-        outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
-        outputs.fusion = pooled_tokens[:, 3, :].squeeze(1)
+        outputs.spliced_output = pooled_tokens[:, 0, :].squeeze(1)
+        outputs.unspliced_output = pooled_tokens[:, 1, :].squeeze(1)
+        outputs.expression_output = pooled_tokens[:, 2, :].squeeze(1)
+        outputs.fusion_output = pooled_tokens[:, 3, :].squeeze(1)
         outputs.losses.contrastive_loss_spliced_unspliced = self.contrastive_loss_spliced_unspliced(outputs.unspliced, outputs.unspliced)
         outputs.losses.contrastive_loss_spliced_expression = self.contrastive_loss_spliced_expression(outputs.spliced, outputs.expression)
         outputs.losses.contrastive_loss_unspliced_expression = self.contrastive_loss_unspliced_expression(outputs.unspliced, outputs.expression)
