@@ -30,7 +30,7 @@ class BioZorroEncoder(nn.Module):
                  ):
         super().__init__()
         self.gene_encoder = GeneEncoder(num_embeddings, embedding_dim, padding_idx)
-        self.counts_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value)
+        self.counts_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
 
     def forward(self, index: Tensor, counts: Tensor) -> Tensor:
         x_g = self.gene_encoder(index)
@@ -44,16 +44,16 @@ class GeneEncoder(nn.Module):
         num_embeddings: int,
         embedding_dim: int,
         padding_idx: Optional[int] = None,
+        max_norm: Optional[float] = 1.0
     ):
         super().__init__()
         self.embedding = nn.Embedding(
-            num_embeddings, embedding_dim, padding_idx=padding_idx
+            num_embeddings, embedding_dim, padding_idx=padding_idx, max_norm=max_norm
         )
-        self.enc_norm = nn.LayerNorm(embedding_dim)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.embedding(x)  # (batch, seq_len, embsize)
-        x = self.enc_norm(x)
+        #print(f"Check g {x[:,-1,-1]}")
         return x
 
 
@@ -62,7 +62,7 @@ class ContinuousValueEncoder(nn.Module):
     Encode real number values to a vector using neural nets projection.
     """
 
-    def __init__(self, d_model: int, dropout: float = 0.1, max_value: int = 512):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_value: int = 512, padding_value = 0.0):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         self.linear1 = nn.Linear(1, d_model)
@@ -70,7 +70,7 @@ class ContinuousValueEncoder(nn.Module):
         self.linear2 = nn.Linear(d_model, d_model)
         self.norm = nn.LayerNorm(d_model)
         self.max_value = max_value
-
+        self.padding_value = padding_value
     def forward(self, x: Tensor) -> Tensor:
         """
         Args:
@@ -79,12 +79,16 @@ class ContinuousValueEncoder(nn.Module):
         # TODO: test using actual embedding layer if input is categorical
         # expand last dimension
         x = x.unsqueeze(-1)
+        pad_mask = x == self.padding_value
         # clip x to [-inf, max_value]
         x = torch.clamp(x, max=self.max_value)
         x = self.activation(self.linear1(x))
         x = self.linear2(x)
         x = self.norm(x)
-        return self.dropout(x)
+        self.dropout(x)
+        x = x.masked_fill(pad_mask, 0.0)
+        #print(f"Check c {x.shape}, {x}")
+        return x
 
 
 class PositionalEncoding(nn.Module):

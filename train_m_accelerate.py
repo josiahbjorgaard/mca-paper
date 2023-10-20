@@ -16,7 +16,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from transformers import get_scheduler
 
-from multizorromodel import BioZorro
+#from multizorromodel import BioZorro
 from encoders import BioZorroCollator
 
 from yacs.config import CfgNode as CN
@@ -73,16 +73,16 @@ config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.hidden_size = 512
+config.hidden_size = 64 #512
 config.layers = 4
-config.dim_head = 64  # heads*dim_head = intermeidate size?
+config.dim_head = 8 #64  # heads*dim_head = intermeidate size?
 config.heads = 8  # num heads
 config.ff_mult = 4  # Feed forward multiplier
 config.num_fusion_tokens = 16
 config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
-config.ds_frac = 0.1 
+config.ds_frac = 0.05 
 config.ds_seed = 42
-config.model = 1
+config.model = 3
 """
 # Create conf   
 config = CN()
@@ -118,10 +118,13 @@ lm_datasets = lm_datasets.rename_column('total_index','expression_index')
 lm_datasets = lm_datasets.rename_column('total_data','expression_data')
 if config.model ==3:
     keep = ['expression_index','expression_data','spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
+    from multizorromodel import BioZorro
 elif config.model ==2:
     keep = ['spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
+    from biozorromodel import BioZorro
 elif config.model ==1:
     keep = ['expression_index', 'expression_data']
+    from unizorromodel import BioZorro
 else:
     raise Exception()
 
