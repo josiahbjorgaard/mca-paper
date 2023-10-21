@@ -293,10 +293,10 @@ class BioZorro(nn.Module):
 
         spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
         unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
-        for i in range(batch):
-            for j in range(5):
-                print(f"Last bit of spliced tokens {i},{j},{unspliced_index[i,-5:]}: {unspliced_tokens[i,-5:,j]}")
-                print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
+        #for i in range(batch):
+        #    for j in range(5):
+        #        print(f"Last bit of spliced tokens {i},{j},{unspliced_index[i,-5:]}: {unspliced_tokens[i,-5:,j]}")
+        #        print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
         expression_tokens = self.expression_embedding(expression_index, expression_data)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
@@ -350,7 +350,7 @@ class BioZorro(nn.Module):
                 device=fusion_tokens.device)),  #No mask on fusion tokens
             'b *')
         #Not sure if I have i, j in the right order below. Which dimension should it repeat on?
-        padding_mask = repeat(padding, 'b j -> b j i', i=padding.shape[-1])
+        padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
         zorro_mask = zorro_mask * padding_mask
         zorro_mask = repeat(zorro_mask, 'b i j -> b h i j', h=self.heads)
         
