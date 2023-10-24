@@ -297,6 +297,8 @@ class BioZorro(nn.Module):
             *((TokenTypes.FUSION.value,) * fusion_tokens.shape[-2]),
         )), device=device, dtype=torch.long)
 
+        token_types = torch.tensor(([i] * i_tokens.shape[-2]) for i, i_tokens in enumerate(all_tokens)))
+
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
 
