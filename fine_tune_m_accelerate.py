@@ -7,16 +7,12 @@ from time import gmtime, strftime
 from tqdm.auto import tqdm
 import torch
 from torch import nn
-#import torch_xla.core.xla_model as xm
-#import torch_xla.distributed.parallel_loader as pl
-#import torch_xla.distributed.xla_backend
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from transformers import get_scheduler
 
-#from multizorromodel import BioZorro
 from encoders import BioZorroCollator
 
 from yacs.config import CfgNode as CN
@@ -27,46 +23,6 @@ from accelerate import Accelerator
 
 accelerator = Accelerator(log_with="wandb")
 
-def count_parameters(model,print_summary=False):
-    n_param_embedding = 0
-    n_param_nonembedding = 0
-    for n,p in model.named_parameters():
-        if p.requires_grad:
-            if print_summary:
-                print(f"{n}:{p.numel()/10**6}M")
-            if 'embedding' in n:
-                n_param_embedding+=p.numel()
-            else:
-                n_param_nonembedding+=p.numel()
-    #return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return n_param_embedding, n_param_nonembedding
-
-def get_param_norm(model,norm_type=2.0):
-    norm_type = float(norm_type)
-    parameters = model.parameters()
-    local_norm = torch.DoubleTensor([0.0]).to(next(iter(parameters)).device)
-    grads_for_norm = []
-    for param in parameters:
-        param_norm = torch.norm(param.detach(), norm_type)
-        local_norm += param_norm ** norm_type
-    total_norm = local_norm**(1.0 / norm_type)
-    return total_norm
-
-def get_grad_norm(model,norm_type=2.0):
-    norm_type = float(norm_type)
-    parameters = model.parameters()
-    local_norm = torch.FloatTensor([float(0.0)]).to(next(iter(parameters)).device)
-    grads_for_norm = []
-    for param in parameters:
-        grad_not_none = param.grad is not None
-        if grad_not_none:
-            grad = param.grad.detach()
-            grad_norm = torch.norm(grad, norm_type)
-            local_norm += grad_norm ** norm_type
-    total_norm = local_norm**(1.0 / norm_type)
-    return total_norm
-
-
 config = CN()
 config.restart = 'training_output_21_31_23_10_2023' 
 config.epochs = 1
@@ -75,53 +31,16 @@ config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.hidden_size = 512
-config.layers = 5
-config.dim_head = 8 #64  # heads*dim_head = intermeidate size?
-config.heads = 8  # num heads
-config.ff_mult = 4  # Feed forward multiplier
-config.num_fusion_tokens = 16
-config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
+config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
 
-#If config.restart, will reset all config items to checkpoint yaml
-if config.restart:
-    # Allow creating new keys recursively.
-    config.set_new_allowed(True)
-    config.merge_from_file(os.path.join(config.restart, 'config.yaml'))
-    config.epochs = 1 ### WILL NEED TO SPECIFY NUMBER OF EPOCHS TO CONTINUE WITH HERE
-    ### New Output directory!!
-    config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-    config.reset_lr = 0.0001
-
-"""
-# Create conf   
-config = CN()
-# Allow creating new keys recursively.
-config.set_new_allowed(True)
-config.merge_from_file(filename)
-"""
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 torch.manual_seed(0)
-
-## define xla as device for using AWS Trainium Neuron Cores
-
-#torch.distributed.init_process_group(device)
-#torch.distributed.init_process_group()
-#rank = torch.distributed.get_rank()
-# create model and move it to GPU with id rank
-#device = rank % torch.cuda.device_count()
-
-# Get the global number of workes.
-#world_size = xm.xrt_world_size()
-#world_size = torch.distributed.get_world_size()
-#logger.info("Workers: {}".format(world_size))
-#logger.info("Device: {}".format(device))
 
 ## Dataset processing
 lm_datasets = load_from_disk(config.dataset).with_format('torch')
