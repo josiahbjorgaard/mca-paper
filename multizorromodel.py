@@ -236,7 +236,7 @@ class BioZorro(nn.Module):
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
-            vocab_size=20000,
+            vocab_size=36601,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION),
             loss=BioZorroPretrainingLoss()
@@ -278,26 +278,26 @@ class BioZorro(nn.Module):
     def forward(
             self,
             *,
-            spliced_data: Optional[Tensor] = None,
+            spliced_counts: Optional[Tensor] = None,
             spliced_index: Optional[Tensor] = None,
-            unspliced_data: Optional[Tensor] = None,
+            unspliced_counts: Optional[Tensor] = None,
             unspliced_index: Optional[Tensor] = None,
-            expression_data: Optional[Tensor] = None,
+            expression_counts: Optional[Tensor] = None,
             expression_index: Optional[Tensor] = None,
 #            spliced_attn_mask: Optional[Tensor] = None,
 #            unspliced_attn_mask: Optional[Tensor] = None,
 #            expression_attn_mask: Optional[Tensor] = None,
             return_token_indices: Optional[Tuple[int]] = None
     ):
-        batch, device = spliced_data.shape[0], spliced_data.device
+        batch, device = spliced_counts.shape[0], spliced_counts.device
 
-        spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
-        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
+        spliced_tokens = self.spliced_embedding(spliced_index, spliced_counts)
+        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_counts)
         #for i in range(batch):
         #    for j in range(5):
         #        print(f"Last bit of spliced tokens {i},{j},{unspliced_index[i,-5:]}: {unspliced_tokens[i,-5:,j]}")
         #        print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
-        expression_tokens = self.expression_embedding(expression_index, expression_data)
+        expression_tokens = self.expression_embedding(expression_index, expression_counts)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
         # construct all tokens

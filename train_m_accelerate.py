@@ -66,23 +66,36 @@ def get_grad_norm(model,norm_type=2.0):
     total_norm = local_norm**(1.0 / norm_type)
     return total_norm
 
+
 config = CN()
+config.restart = 
+
 config.epochs = 1
-config.batch_size = 2
+config.batch_size = 4
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.hidden_size = 64 #512
-config.layers = 4
+config.hidden_size = 512
+config.layers = 5
 config.dim_head = 8 #64  # heads*dim_head = intermeidate size?
 config.heads = 8  # num heads
 config.ff_mult = 4  # Feed forward multiplier
 config.num_fusion_tokens = 16
-config.dataset = "/efs-private/multimodal/data/filtered_protein_mrna_genes"
-config.ds_frac = 0.05 
+config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
+config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
+
+#If config.restart, will reset all config items to checkpoint yaml
+if config.restart:
+    # Allow creating new keys recursively.
+    config.set_new_allowed(True)
+    config.merge_from_file(config.restart)
+    config.epochs = 1 ### WILL NEED TO SPECIFY NUMBER OF EPOCHS TO CONTINUE WITH HERE
+    ### New Output directory!!
+    config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
+
 """
 # Create conf   
 config = CN()
@@ -114,16 +127,16 @@ torch.manual_seed(0)
 lm_datasets = load_from_disk(config.dataset).with_format('torch')
 if config.ds_frac < 1.0:
     lm_datasets = lm_datasets.select(list(range(0,int(len(lm_datasets)*config.ds_frac))))
-lm_datasets = lm_datasets.rename_column('total_index','expression_index')
-lm_datasets = lm_datasets.rename_column('total_data','expression_data')
+#lm_datasets = lm_datasets.rename_column('total_index','expression_index')
+#lm_datasets = lm_datasets.rename_column('total_data','expression_data')
 if config.model ==3:
-    keep = ['expression_index','expression_data','spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
+    keep = ['expression_index','expression_counts','spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
     from multizorromodel import BioZorro
 elif config.model ==2:
-    keep = ['spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
+    keep = ['spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
     from biozorromodel import BioZorro
 elif config.model ==1:
-    keep = ['expression_index', 'expression_data']
+    keep = ['expression_index', 'expression_counts']
     from unizorromodel import BioZorro
 else:
     raise Exception()
@@ -224,7 +237,13 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )
+
+if config.restart:
+    logger.info(f"Loading saved state from {config.restart}")
+    accelerator.load_state(config.restart)
+
 ## Start model training and defining the training loop
+
 model.train()
 device=accelerator.device
 world_size=torch.cuda.device_count()
@@ -254,6 +273,7 @@ for epoch in range(config.epochs):
     #wandb.log({"epoch_loss":loss.detach().to("cpu")})
     #logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
     #Evaluation
+    accelerator.save_state(config.output_dir)
     model.eval()
     with torch.no_grad():
         epoch_loss = 0.0
