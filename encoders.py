@@ -30,15 +30,17 @@ class BioZorroCollatorWithTargets:
         self.target_size = target_size
 
     def __call__(self, data):  # (2)
-        collated_data = {k: list() for k in data[0].keys()}
+        collated_data = {k: list() for k in data[0].keys() if self.target_name not in k}
+        collated_data[self.target_name]=list()
         for d in data:
             for k, v in d.items():
                 if self.target_name not in k:
                     length = v.shape[-1]
                     padded_v = pad(v, (0, self.pad_len - length), mode='constant', value=self.pad_token)
                     collated_data[k].append(padded_v)
-            collated_data[self.target_name] = torch.zeros(self.target_size, dtype = d[self.target_name+'_data'])
-            collated_data[d[self.target_name+'_index']] = d[self.target_name+'_data']
+            targets = torch.zeros(self.target_size, dtype = d[self.target_name+'_data'].dtype)
+            targets[d[self.target_name+'_index']] = d[self.target_name+'_data']
+            collated_data[self.target_name].append(targets)
         for k, v in collated_data.items():
             collated_data[k] = torch.stack(v)
         return collated_data
