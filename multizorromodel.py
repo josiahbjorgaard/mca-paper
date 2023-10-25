@@ -345,15 +345,14 @@ class BioZorro(nn.Module):
         # And a custom Padding token via the Dataloader/collator
         #if spliced_attn_mask:
         padding, ps = pack((
-            spliced_index == 0,
-            unspliced_index == 0,
-            expression_index == 0,
+            spliced_index != 0,
+            unspliced_index != 0,
+            expression_index != 0,
             torch.zeros(fusion_tokens.shape[0],
                 fusion_tokens.shape[1],
                 dtype=torch.bool,
                 device=fusion_tokens.device)),  #No mask on fusion tokens
             'b *')
-        #Not sure if I have i, j in the right order below. Which dimension should it repeat on?
         padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
         zorro_mask = zorro_mask * padding_mask
         zorro_mask = repeat(zorro_mask, 'b i j -> b h i j', h=self.heads)
@@ -383,11 +382,11 @@ class BioZorro(nn.Module):
         return_tokens = repeat(return_tokens, 'n d -> b n d', b=batch)
         pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
         # global queries can attend to all tokens
-        pool_mask = pool_mask | rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
-            token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value
+        pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
+            token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
 
         #Padding mask to pool mask
-        padding_mask = repeat(padding, 'b j -> b i j', i=pool_mask.shape[0])
+        padding_mask = repeat(padding, 'b i -> b i j', i=pool_mask.shape[0])
         pool_mask = pool_mask * padding_mask
         pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
 
