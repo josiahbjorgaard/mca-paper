@@ -22,6 +22,8 @@ import wandb
 from datetime import datetime
 from accelerate import Accelerator
 
+from torchmetrics.functional.regression import pearson_corrcoef
+
 accelerator = Accelerator(log_with="wandb")
 
 config = CN()
@@ -30,7 +32,7 @@ config.epochs = 10
 config.batch_size = 8
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
-config.lr = 1e-5
+config.lr = 1e-6
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
 config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
 config.gene_indices = []
@@ -127,7 +129,7 @@ class CustomModel(nn.Module):
                     nn.Linear(backbone_hidden_size, decoder_hidden_size),
                  ]
         for n in range(decoder_num_layers):
-            if n == decoder_num_layers:
+            if n != decoder_num_layers-1:
                 decoder_hidden_size_in = decoder_hidden_size
                 decoder_hidden_size_out = decoder_hidden_size
             else:
@@ -139,14 +141,16 @@ class CustomModel(nn.Module):
                                     nn.Linear(decoder_hidden_size_in, decoder_hidden_size_out),
                               ]
         self.decoder = nn.Sequential(*layers)
+        print(self.decoder)
         self.loss = nn.MSELoss()
+        self.metrics = {"pcc":pearson_corrcoef}
     def forward(self, batch):
         output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
         logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
         logits = self.decoder(logits)
-        return self.loss(logits, batch['velocity'])
+        return self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
 
-model = CustomModel(model, hidden_size = model_config['dim']*4, size = 36601)
+model = CustomModel(model, backbone_hidden_size = model_config['dim']*4, output_size = 36601)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )
@@ -157,7 +161,7 @@ world_size=torch.cuda.device_count()
 for epoch in range(config.epochs):
     for batch in train_dl:
         batch = {k: v.to(device) for k, v in batch.items()}
-        loss = model(batch)
+        loss, metrics = model(batch)
         optimizer.zero_grad()
         accelerator.backward(loss)
         ## xm.optimizer_step is performing the sum of all the gradients updates done in the different Cores
@@ -165,9 +169,10 @@ for epoch in range(config.epochs):
         optimizer.step()
         lr_scheduler.step()
         if accelerator.is_main_process:
-            progress_bar.update(world_size)git pul
+            progress_bar.update(world_size)
         accelerator.log({"loss":loss.detach().to("cpu")})
         accelerator.log({"lr":optimizer.param_groups[0]['lr']})
+        accelerator.log({k:v.detach().to("cpu") for k,v in metrics.items()})
     #Evaluation
     accelerator.save_state(config.output_dir)
     model.eval()

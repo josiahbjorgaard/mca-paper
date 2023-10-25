@@ -68,17 +68,17 @@ def get_grad_norm(model,norm_type=2.0):
 
 
 config = CN()
-config.restart = 'training_output_21_31_23_10_2023' 
-config.epochs = 1
+config.restart = False #'training_output_21_31_23_10_2023' 
+config.epochs = 3
 config.batch_size = 4
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.hidden_size = 512
+config.hidden_size = 256
 config.layers = 5
-config.dim_head = 8 #64  # heads*dim_head = intermeidate size?
-config.heads = 8  # num heads
+config.dim_head = 64 #64  # heads*dim_head = intermeidate size?
+config.heads = 4  # num heads
 config.ff_mult = 4  # Feed forward multiplier
 config.num_fusion_tokens = 16
 config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
@@ -146,6 +146,9 @@ for key in lm_datasets.features.keys():
     if key not in keep:
         remove.append(key)
 lm_datasets = lm_datasets.remove_columns(remove)
+for val in keep:
+    if 'counts' in val:
+        lm_datasets = lm_datasets.rename_column(val, val.split('_')[0]+'_data')
 lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 
 #BioZorro Collator
@@ -183,7 +186,7 @@ print(f"Number of training samples: {len(lm_datasets['train'])}")
 
 # Initialise your wandb run, passing wandb parameters and any config information
 accelerator.init_trackers(
-    project_name="Multimodal",
+    project_name="Multimodal2",
     config=dict(config),
     init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
     )
@@ -264,8 +267,7 @@ for epoch in range(config.epochs):
         ## xm.optimizer_step is performing the sum of all the gradients updates done in the different Cores
 #           xm.optimizer_step(optimizer)
         optimizer.step()
-        if not config.reset_lr:
-            lr_scheduler.step()
+        lr_scheduler.step()
         if accelerator.is_main_process:
             progress_bar.update(world_size)
         accelerator.log({"total_loss":loss.detach().to("cpu")})
