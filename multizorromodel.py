@@ -348,7 +348,7 @@ class BioZorro(nn.Module):
             spliced_index != 0,
             unspliced_index != 0,
             expression_index != 0,
-            torch.zeros(fusion_tokens.shape[0],
+            torch.ones(fusion_tokens.shape[0],
                 fusion_tokens.shape[1],
                 dtype=torch.bool,
                 device=fusion_tokens.device)),  #No mask on fusion tokens
@@ -386,7 +386,7 @@ class BioZorro(nn.Module):
             token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
 
         #Padding mask to pool mask
-        padding_mask = repeat(padding, 'b i -> b i j', i=pool_mask.shape[0])
+        padding_mask = repeat(padding, 'b j -> b i j', i=pool_mask.shape[0])
         pool_mask = pool_mask * padding_mask
         pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
 
