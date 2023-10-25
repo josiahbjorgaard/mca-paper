@@ -9,10 +9,11 @@ import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from multizorromodel import BioZorro
+from safetensors.torch import load_model
 
 from transformers import get_scheduler
 
-from encoders import BioZorroCollator
+from encoders import BioZorroCollatorWithTargets
 
 from yacs.config import CfgNode as CN
 from collections import defaultdict
@@ -23,7 +24,7 @@ from accelerate import Accelerator
 accelerator = Accelerator(log_with="wandb")
 
 config = CN()
-config.restart = 'training_output_21_31_23_10_2023'
+config.model_dir = 'training_output_21_31_23_10_2023'
 config.epochs = 1
 config.batch_size = 4
 config.num_warmup_steps = 3000
@@ -56,59 +57,25 @@ for key in lm_datasets.features.keys():
 lm_datasets = lm_datasets.remove_columns(remove)
 lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 
-def veloc2target(batch):
-
 
 #BioZorro Collator
-default_data_collator = BioZorroCollator(pad_len=1024, pad_token=0)
+default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0)
 
 #### MODEL
-model_config = {
-    "dim": config.hidden_size, #hidden size
-    "depth": config.layers, #layers
-#    "spliced_input_dim": config.hidden_size, #embedding_size
-#    "unspliced_input_dim": config.hidden_size,
-#    "expression_input_dim": config.hidden_size,
-    "dim_head": config.dim_head, #don't know, head hidden size?
-    "heads": config.heads, #num heads
-    "ff_mult": config.ff_mult, #Feed forward multiplier
-    "num_fusion_tokens": config.num_fusion_tokens,
-}
+with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
+    model_config = json.load(f)
 print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
-
-config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
-print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
-print(f"Number of non-embedding parameters: {config.n_params_nonemb/10**6}M")
-print(f"Number of training samples: {len(lm_datasets['train'])}")
-
-
-##Wandb causes an exception running in distributed mode
-#    if xm.is_master_ordinal(local=False):
-#wandb.init(
-#        entity="josiahbjorgaard",
-#        project="Multimodal",
-#        config=dict(config),
-#    )
+load_model(model, os.path.join(args.model_dir,'model.safetensors'))
 
 # Initialise your wandb run, passing wandb parameters and any config information
 accelerator.init_trackers(
-    project_name="Multimodal",
+    project_name="Multimodal-Velocity",
     config=dict(config),
     init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
     )
 
-## Create a subsed of data sampler, for parallelizing the training across multiple cores
-#if world_size > 1:
-#    train_sampler = DistributedSampler(
-#        lm_datasets["train"],
-#        num_replicas=world_size,
-        #rank=xm.get_ordinal(), #Default to get from current distributed group
-#        shuffle=True,
-#    )
-#else:
-#    train_sampler = None
 ## Creating a DataLoader object for iterating over it during the training epochs
 train_dl = DataLoader(
     lm_datasets["train"],
@@ -145,10 +112,6 @@ if accelerator.is_main_process:
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
-model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
-     model, optimizer, train_dl, eval_dl, lr_scheduler
-     )
-
 if config.restart:
     logger.info(f"Loading saved state from {config.restart}")
     accelerator.load_state(config.restart)
@@ -157,6 +120,22 @@ if config.restart:
             param_group['lr'] = config.reset_lr
 
 ## Start model training and defining the training loop
+class CustomModel(nn.Module):
+    def __init__(self, model, size):
+        super().__init__()
+        self.model = model
+        self.linear = nn.Linear(-1, size)
+        self.loss = nn.MSELoss()
+    def forward(self, batch):
+        output = self.model(**{k:v for k,v in batch if 'velocity' not in k})
+        logits = torch.cat([output.expression_output, output.spliced_output, output.unspliced_output, output.fusion_output])
+        logits = self.linear(logits)
+        return self.loss(logits, batch['velocity'])
+
+model = CustomModel(model, 36601)
+model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
+     model, optimizer, train_dl, eval_dl, lr_scheduler
+     )
 
 model.train()
 device=accelerator.device
@@ -164,13 +143,8 @@ world_size=torch.cuda.device_count()
 for epoch in range(config.epochs):
     for batch in train_dl:
         batch = {k: v.to(device) for k, v in batch.items()}
-        outputs = model(**batch)
+        loss = model(**batch)
         optimizer.zero_grad()
-        loss = outputs.loss
-        #losses = outputs.losses["losses"]
-        #print(losses)
-        #loss = losses.contrastive_loss + losses.fusion_loss_spliced + losses.fusion_loss_unspliced
-        #loss.backward()
         accelerator.backward(loss)
         ## xm.optimizer_step is performing the sum of all the gradients updates done in the different Cores
 #           xm.optimizer_step(optimizer)
@@ -194,8 +168,7 @@ for epoch in range(config.epochs):
         epoch_loss = 0.0
         losses = defaultdict(lambda: torch.Tensor([0.0]).to("cpu"))
         for i, batch in enumerate(tqdm(eval_dl)):
-            outputs = model(**batch)
-            loss = outputs.loss
+            loss = model(**batch)
             for k,v in outputs.losses.items():
                 losses[k]+=v.detach().to("cpu")
                 losses["total_loss"]+=loss.detach().to("cpu")
