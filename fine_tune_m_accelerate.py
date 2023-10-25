@@ -26,8 +26,8 @@ accelerator = Accelerator(log_with="wandb")
 
 config = CN()
 config.model_dir = 'training_output_21_31_23_10_2023'
-config.epochs = 1
-config.batch_size = 4
+config.epochs = 10
+config.batch_size = 8
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-5
@@ -49,15 +49,16 @@ lm_datasets = load_from_disk(config.dataset).with_format('torch')
 if config.ds_frac < 1.0:
     lm_datasets = lm_datasets.select(list(range(0,int(len(lm_datasets)*config.ds_frac))))
 keep = ['expression_index','expression_data','spliced_index',
-        'unspliced_index', 'spliced_data', 'unspliced_data'
+        'unspliced_index', 'spliced_data', 'unspliced_data',
         'velocity_index', 'velocity_data']
 remove = list()
+print(lm_datasets)
 for key in lm_datasets.features.keys():
     if key not in keep:
         remove.append(key)
 lm_datasets = lm_datasets.remove_columns(remove)
 lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
-
+print(lm_datasets)
 
 #BioZorro Collator
 default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0)
@@ -113,18 +114,23 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 
 ## Start model training and defining the training loop
 class CustomModel(nn.Module):
-    def __init__(self, model, size):
+    def __init__(self, model, hidden_size, size):
         super().__init__()
+        for name,param in model.named_parameters():
+            #print(name)
+            param.requires_grad=False
         self.model = model
-        self.linear = nn.Linear(-1, size)
+        self.linear = nn.Linear(hidden_size,size)
         self.loss = nn.MSELoss()
     def forward(self, batch):
-        output = self.model(**{k:v for k,v in batch if 'velocity' not in k})
-        logits = torch.cat([output.expression_output, output.spliced_output, output.unspliced_output, output.fusion_output])
+        output = self.model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
+        logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
         logits = self.linear(logits)
+        #print(f"2:{logits.shape}")
+        #print(batch['velocity'].shape)
         return self.loss(logits, batch['velocity'])
 
-model = CustomModel(model, 36601)
+model = CustomModel(model, hidden_size = model_config['dim']*4, size = 36601)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )
@@ -135,14 +141,13 @@ world_size=torch.cuda.device_count()
 for epoch in range(config.epochs):
     for batch in train_dl:
         batch = {k: v.to(device) for k, v in batch.items()}
-        loss = model(**batch)
+        loss = model(batch)
         optimizer.zero_grad()
         accelerator.backward(loss)
         ## xm.optimizer_step is performing the sum of all the gradients updates done in the different Cores
 #           xm.optimizer_step(optimizer)
         optimizer.step()
-        if not config.reset_lr:
-            lr_scheduler.step()
+        lr_scheduler.step()
         if accelerator.is_main_process:
             progress_bar.update(world_size)
         accelerator.log({"loss":loss.detach().to("cpu")})
@@ -153,7 +158,7 @@ for epoch in range(config.epochs):
     with torch.no_grad():
         epoch_loss = 0.0
         for i, batch in enumerate(tqdm(eval_dl)):
-            loss = model(**batch)
+            loss = model(batch)
             accelerator.log({"val_step_total_loss":loss.to("cpu")})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 os.makedirs(config.output_dir, exist_ok=True)

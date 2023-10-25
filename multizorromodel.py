@@ -199,13 +199,16 @@ class BioZorroPretrainingLoss(nn.Module):
 
     def forward(
             self,
-            pooled_tokens
+            pooled_tokens,
+            no_loss = False
     ):
         outputs = BioZorroPretrainingLossOutput()
         outputs.spliced = pooled_tokens[:, 0, :].squeeze(1)
         outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
         outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
         outputs.fusion = pooled_tokens[:, 3, :].squeeze(1)
+        if no_loss:
+            return outputs
         outputs.losses.contrastive_loss_spliced_unspliced = self.contrastive_loss_spliced_unspliced(outputs.unspliced, outputs.unspliced)
         outputs.losses.contrastive_loss_spliced_expression = self.contrastive_loss_spliced_expression(outputs.spliced, outputs.expression)
         outputs.losses.contrastive_loss_unspliced_expression = self.contrastive_loss_unspliced_expression(outputs.unspliced, outputs.expression)
@@ -217,7 +220,7 @@ class BioZorroPretrainingLoss(nn.Module):
                        outputs.losses.contrastive_loss_unspliced_expression + \
                        outputs.losses.fusion_loss_spliced + \
                        outputs.losses.fusion_loss_unspliced + \
-                       outputs.losses .fusion_loss_expression
+                       outputs.losses.fusion_loss_expression
         return outputs
 
 
@@ -278,26 +281,27 @@ class BioZorro(nn.Module):
     def forward(
             self,
             *,
-            spliced_counts: Optional[Tensor] = None,
+            spliced_data: Optional[Tensor] = None,
             spliced_index: Optional[Tensor] = None,
-            unspliced_counts: Optional[Tensor] = None,
+            unspliced_data: Optional[Tensor] = None,
             unspliced_index: Optional[Tensor] = None,
-            expression_counts: Optional[Tensor] = None,
+            expression_data: Optional[Tensor] = None,
             expression_index: Optional[Tensor] = None,
 #            spliced_attn_mask: Optional[Tensor] = None,
 #            unspliced_attn_mask: Optional[Tensor] = None,
 #            expression_attn_mask: Optional[Tensor] = None,
-            return_token_indices: Optional[Tuple[int]] = None
+            return_token_indices: Optional[Tuple[int]] = None,
+            no_loss = False
     ):
-        batch, device = spliced_counts.shape[0], spliced_counts.device
+        batch, device = spliced_data.shape[0], spliced_data.device
 
-        spliced_tokens = self.spliced_embedding(spliced_index, spliced_counts)
-        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_counts)
+        spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
+        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
         #for i in range(batch):
         #    for j in range(5):
         #        print(f"Last bit of spliced tokens {i},{j},{unspliced_index[i,-5:]}: {unspliced_tokens[i,-5:,j]}")
         #        print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
-        expression_tokens = self.expression_embedding(expression_index, expression_counts)
+        expression_tokens = self.expression_embedding(expression_index, expression_data)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
 
         # construct all tokens
@@ -389,4 +393,4 @@ class BioZorro(nn.Module):
 
         pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask) + return_tokens
 
-        return self.loss(pooled_tokens)
+        return self.loss(pooled_tokens, no_loss)
