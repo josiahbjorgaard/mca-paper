@@ -9,8 +9,9 @@ class BioZorroCollator:
     def __init__(self, pad_token=0, pad_len=2048):
         self.pad_token = pad_token
         self.pad_len=pad_len
-    def __call__(self, data):#(2)
-        collated_data = {k:list() for k in data[0].keys()}
+
+    def __call__(self, data): #(2)
+        collated_data = {k: list() for k in data[0].keys()}
         for d in data:
             for k,v in d.items():
                 length = v.shape[-1]
@@ -19,6 +20,29 @@ class BioZorroCollator:
         for k,v in collated_data.items():
             collated_data[k]=torch.stack(v)
         return collated_data
+
+
+class BioZorroCollatorWithTargets:
+    def __init__(self, pad_token=0, pad_len=2048, target_name="velocity", target_size=36601):
+        self.pad_token = pad_token
+        self.pad_len = pad_len
+        self.target_name = target_name
+        self.target_size = target_size
+
+    def __call__(self, data):  # (2)
+        collated_data = {k: list() for k in data[0].keys()}
+        for d in data:
+            for k, v in d.items():
+                if self.target_name not in k:
+                    length = v.shape[-1]
+                    padded_v = pad(v, (0, self.pad_len - length), mode='constant', value=self.pad_token)
+                    collated_data[k].append(padded_v)
+            collated_data[self.target_name] = torch.zeros(self.target_size, dtype = d[self.target_name+'_data'])
+            collated_data[d[self.target_name+'_index']] = d[self.target_name+'_data']
+        for k, v in collated_data.items():
+            collated_data[k] = torch.stack(v)
+        return collated_data
+
 
 class BioZorroEncoder(nn.Module):
     def __init__(self,

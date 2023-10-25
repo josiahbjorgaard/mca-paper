@@ -6,10 +6,9 @@ import os
 from time import gmtime, strftime
 from tqdm.auto import tqdm
 import torch
-from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
+from multizorromodel import BioZorro
 
 from transformers import get_scheduler
 
@@ -24,7 +23,7 @@ from accelerate import Accelerator
 accelerator = Accelerator(log_with="wandb")
 
 config = CN()
-config.restart = 'training_output_21_31_23_10_2023' 
+config.restart = 'training_output_21_31_23_10_2023'
 config.epochs = 1
 config.batch_size = 4
 config.num_warmup_steps = 3000
@@ -32,6 +31,7 @@ config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
 config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
+config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
@@ -46,26 +46,18 @@ torch.manual_seed(0)
 lm_datasets = load_from_disk(config.dataset).with_format('torch')
 if config.ds_frac < 1.0:
     lm_datasets = lm_datasets.select(list(range(0,int(len(lm_datasets)*config.ds_frac))))
-#lm_datasets = lm_datasets.rename_column('total_index','expression_index')
-#lm_datasets = lm_datasets.rename_column('total_data','expression_data')
-if config.model ==3:
-    keep = ['expression_index','expression_counts','spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
-    from multizorromodel import BioZorro
-elif config.model ==2:
-    keep = ['spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
-    from biozorromodel import BioZorro
-elif config.model ==1:
-    keep = ['expression_index', 'expression_counts']
-    from unizorromodel import BioZorro
-else:
-    raise Exception()
-
+keep = ['expression_index','expression_data','spliced_index',
+        'unspliced_index', 'spliced_data', 'unspliced_data'
+        'velocity_index', 'velocity_data']
 remove = list()
 for key in lm_datasets.features.keys():
     if key not in keep:
         remove.append(key)
 lm_datasets = lm_datasets.remove_columns(remove)
 lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
+
+def veloc2target(batch):
+
 
 #BioZorro Collator
 default_data_collator = BioZorroCollator(pad_len=1024, pad_token=0)
