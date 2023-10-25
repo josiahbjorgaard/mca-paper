@@ -182,7 +182,7 @@ class BioZorroPretrainingLossOutput(ModelOutput):
     unspliced: Optional[Tensor] = None
     expression: Optional[Tensor] = None
     fusion: Optional[Tensor] = None
-    # global_output = None
+    global_output: Optional[Tensor] = None
 
 
 class BioZorroPretrainingLoss(nn.Module):
@@ -207,8 +207,10 @@ class BioZorroPretrainingLoss(nn.Module):
         outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
         outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
         outputs.fusion = pooled_tokens[:, 3, :].squeeze(1)
+        outputs.global_output = pooled_tokens[:, 4, :].squeeze(1)
         if no_loss:
             return outputs
+
         outputs.losses.contrastive_loss_spliced_unspliced = self.contrastive_loss_spliced_unspliced(outputs.unspliced, outputs.unspliced)
         outputs.losses.contrastive_loss_spliced_expression = self.contrastive_loss_spliced_expression(outputs.spliced, outputs.expression)
         outputs.losses.contrastive_loss_unspliced_expression = self.contrastive_loss_unspliced_expression(outputs.unspliced, outputs.expression)
@@ -241,7 +243,8 @@ class BioZorro(nn.Module):
             num_fusion_tokens=16,
             vocab_size=36601,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
-                                                     TokenTypes.EXPRESSION, TokenTypes.FUSION),
+                                                     TokenTypes.EXPRESSION, TokenTypes.FUSION,
+                                                     TokenTypes.GLOBAL),
             loss=BioZorroPretrainingLoss()
     ):
         super().__init__()
