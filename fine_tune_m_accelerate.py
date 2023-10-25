@@ -114,20 +114,36 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 
 ## Start model training and defining the training loop
 class CustomModel(nn.Module):
-    def __init__(self, model, hidden_size, size):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, decoder_num_layers=3, dropout=0.1):
         super().__init__()
         for name,param in model.named_parameters():
             #print(name)
             param.requires_grad=False
-        self.model = model
-        self.linear = nn.Linear(hidden_size,size)
+        self.backbone_model = backbone_model
+        self.dropout = nn.Dropout(dropout)
+        if decoder_num_layers == 0:
+            decoder_hidden_size = output_size
+        layers = [
+                    nn.Linear(backbone_hidden_size, decoder_hidden_size),
+                 ]
+        for n in range(decoder_num_layers):
+            if n == decoder_num_layers:
+                decoder_hidden_size_in = decoder_hidden_size
+                decoder_hidden_size_out = decoder_hidden_size
+            else:
+                decoder_hidden_size_in = decoder_hidden_size
+                decoder_hidden_size_out = output_size
+            layers = layers + [
+                                    nn.ReLU(),
+                                    nn.Dropout(dropout),
+                                    nn.Linear(decoder_hidden_size_in, decoder_hidden_size_out),
+                              ]
+        self.decoder = nn.Sequential(*layers)
         self.loss = nn.MSELoss()
     def forward(self, batch):
-        output = self.model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
+        output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
         logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
-        logits = self.linear(logits)
-        #print(f"2:{logits.shape}")
-        #print(batch['velocity'].shape)
+        logits = self.decoder(logits)
         return self.loss(logits, batch['velocity'])
 
 model = CustomModel(model, hidden_size = model_config['dim']*4, size = 36601)
@@ -149,7 +165,7 @@ for epoch in range(config.epochs):
         optimizer.step()
         lr_scheduler.step()
         if accelerator.is_main_process:
-            progress_bar.update(world_size)
+            progress_bar.update(world_size)git pul
         accelerator.log({"loss":loss.detach().to("cpu")})
         accelerator.log({"lr":optimizer.param_groups[0]['lr']})
     #Evaluation
