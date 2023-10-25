@@ -6,6 +6,7 @@ import os
 from time import gmtime, strftime
 from tqdm.auto import tqdm
 import torch
+from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from multizorromodel import BioZorro
@@ -29,7 +30,7 @@ config.epochs = 1
 config.batch_size = 4
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
-config.lr = 1e-4
+config.lr = 1e-5
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
 config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
 config.gene_indices = []
@@ -67,7 +68,7 @@ with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
 print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
-load_model(model, os.path.join(args.model_dir,'model.safetensors'))
+load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
 
 # Initialise your wandb run, passing wandb parameters and any config information
 accelerator.init_trackers(
@@ -91,8 +92,6 @@ eval_dl = DataLoader(
         batch_size=config.batch_size)
 
 sample = next(iter(train_dl))
-[print(f"{k}:{v.shape}") for k,v in sample.items()]
-print(f"Number of batches: {len(train_dl)}")
 
 current_timestamp = strftime("%Y-%m-%d-%H-%M", gmtime())
 
@@ -111,13 +110,6 @@ if accelerator.is_main_process:
     progress_bar = tqdm(range(num_training_steps))
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
-
-if config.restart:
-    logger.info(f"Loading saved state from {config.restart}")
-    accelerator.load_state(config.restart)
-    if config.reset_lr:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = config.reset_lr
 
 ## Start model training and defining the training loop
 class CustomModel(nn.Module):
@@ -153,28 +145,16 @@ for epoch in range(config.epochs):
             lr_scheduler.step()
         if accelerator.is_main_process:
             progress_bar.update(world_size)
-        accelerator.log({"total_loss":loss.detach().to("cpu")})
-        accelerator.log({k:v.detach().to("cpu") for k,v in outputs.losses.items()})
-        accelerator.log({"param_norm":get_param_norm(model).to("cpu"),"grad_norm":get_grad_norm(model).to("cpu")})
+        accelerator.log({"loss":loss.detach().to("cpu")})
         accelerator.log({"lr":optimizer.param_groups[0]['lr']})
-    #outputs.losses.contrastive_loss + outputs.losses.fusion_loss_spliced + outputs.losses.fusion_loss_unspliced
-    #if xm.is_master_ordinal(local=False):
-    #wandb.log({"epoch_loss":loss.detach().to("cpu")})
-    #logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
     #Evaluation
     accelerator.save_state(config.output_dir)
     model.eval()
     with torch.no_grad():
         epoch_loss = 0.0
-        losses = defaultdict(lambda: torch.Tensor([0.0]).to("cpu"))
         for i, batch in enumerate(tqdm(eval_dl)):
             loss = model(**batch)
-            for k,v in outputs.losses.items():
-                losses[k]+=v.detach().to("cpu")
-                losses["total_loss"]+=loss.detach().to("cpu")
             accelerator.log({"val_step_total_loss":loss.to("cpu")})
-            accelerator.log({"val_step_"+k:v.detach().to("cpu") for k,v in outputs.losses.items()})
-        accelerator.log({'val_epoch_'+k:v/len(eval_dl) for k,v in losses.items()})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 os.makedirs(config.output_dir, exist_ok=True)
 with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
@@ -183,7 +163,3 @@ with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
     json.dump(model_config, f)
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
 accelerator.end_training()
-## Using XLA for saving model after training for being sure only one copy of the model is saved
-#os.makedirs(config.output_dir, exist_ok=True)
-#checkpoint = {"state_dict": model.state_dict()}
-#xm.save(checkpoint, f"{config.output_dir}/checkpoint.pt")
