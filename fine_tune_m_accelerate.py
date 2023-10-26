@@ -25,15 +25,20 @@ from accelerate import Accelerator
 
 from torchmetrics.functional.regression import pearson_corrcoef
 
-accelerator = Accelerator(log_with="wandb")
+from accelerate import DistributedDataParallelKwargs
+
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
 
 config = CN()
 config.model_dir = 'training_output_22_47_25_10_2023'
 config.fit_indices = [5717, 33042, 21509, 27559, 33027]
 config.norm = [0.2,0.5]
-config.decoder_num_layers = 0
+config.decoder_num_layers = 5
+config.layers_to_unfreeze = "all" #['attn_pool','return_tokens'] # or None
+config.load_checkpoint=False
 config.epochs = 10
-config.batch_size = 16
+config.batch_size = 6
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
@@ -67,7 +72,7 @@ lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 print(lm_datasets)
 
 #BioZorro Collator
-default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, target_ids = config.fit_indices)
+default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, target_ids = config.fit_indices, norm=config.norm)
 
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
@@ -75,9 +80,10 @@ with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
 print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
-#load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
-checkpoint = torch.load(os.path.join(config.model_dir, 'pytorch_model.bin'))
-model.load_state_dict(checkpoint)
+if config.load_checkpoint:
+    #load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
+    checkpoint = torch.load(os.path.join(config.model_dir, 'pytorch_model.bin'))
+    model.load_state_dict(checkpoint)
 
 # Initialise your wandb run, passing wandb parameters and any config information
 accelerator.init_trackers(
@@ -128,48 +134,12 @@ with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 ## Start model training and defining the training loop
-class CustomModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layer_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
-        super().__init__()
-        for name,param in backbone_model.named_parameters():
-            if not layer_to_unfreeze or layer_to_unfreeze not in name:
-                print(name)
-                param.requires_grad=False
-        self.backbone_model = backbone_model
-        self.dropout = nn.Dropout(dropout)
-        if decoder_num_layers == 0:
-            decoder_hidden_size = output_size
-        layers = [
-                    nn.Linear(backbone_hidden_size, decoder_hidden_size),
-                 ]
-        for n in range(decoder_num_layers):
-            if n != decoder_num_layers-1:
-                decoder_hidden_size_in = decoder_hidden_size
-                decoder_hidden_size_out = decoder_hidden_size
-            else:
-                decoder_hidden_size_in = decoder_hidden_size
-                decoder_hidden_size_out = output_size
-            layers = layers + [
-                                    nn.ReLU(),
-                                    nn.Dropout(dropout),
-                                    nn.Linear(decoder_hidden_size_in, decoder_hidden_size_out),
-                              ]
-        self.decoder = nn.Sequential(*layers)
-        print(self.decoder)
-        self.loss = nn.MSELoss()
-        self.metrics = {"pcc":pearson_corrcoef}
-    def forward(self, batch):
-        output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
-        logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
-        logits = self.decoder(logits)
-        return self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
-
 if config.fit_indices:
     output_size = len(config.fit_indices)
 else:
     output_size = 36601 #total vocab size
 
-model = CustomModel(model, decoder_num_layers=config.decoder_num_layers,layer_to_unfreeze=None,backbone_hidden_size = model_config['dim']*4, output_size = output_size)
+model = VelocityModel(model, decoder_num_layers=config.decoder_num_layers,layers_to_unfreeze=config.layers_to_unfreeze,backbone_hidden_size = model_config['dim']*4, output_size = output_size)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )

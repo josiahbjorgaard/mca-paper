@@ -5,12 +5,12 @@ from torchmetrics.functional.regression import pearson_corrcoef
 
 ## Start model training and defining the training loop
 class VelocityModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layer_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
         super().__init__()
-        for name,param in backbone_model.named_parameters():
-            if not layer_to_unfreeze or layer_to_unfreeze not in name:
-                print(name)
-                param.requires_grad=False
+        if layers_to_unfreeze != "all":
+            for name,param in backbone_model.named_parameters():
+                param.requires_grad = True if name in layers_to_unfreeze else False
+                print(f"{name}:{param.requires_grad}")
         self.backbone_model = backbone_model
         self.dropout = nn.Dropout(dropout)
         if decoder_num_layers == 0:

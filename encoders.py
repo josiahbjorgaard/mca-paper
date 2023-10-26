@@ -32,6 +32,7 @@ class BioZorroCollatorWithTargets:
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.target_name = target_name
+        self.norm=norm
         if target_ids:
             self.target_size = len(target_ids)
         else:
@@ -59,7 +60,7 @@ class BioZorroCollatorWithTargets:
                     targets[target_idx]=y    
             else:
                 targets[d[self.target_name+'_index']] = d[self.target_name+'_data']
-            targets = targets/norm[0]+norm[1]
+            targets = targets*self.norm[0]+self.norm[1]
             collated_data[self.target_name].append(targets)
         for k, v in collated_data.items():
             collated_data[k] = torch.stack(v)
