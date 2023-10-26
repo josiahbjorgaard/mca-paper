@@ -235,6 +235,12 @@ lr_scheduler = get_scheduler(
 if accelerator.is_main_process:
     progress_bar = tqdm(range(num_training_steps))
 
+os.makedirs(config.output_dir, exist_ok=True)
+with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
+    with redirect_stdout(f): print(config.dump())
+with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
+    json.dump(model_config, f)
+
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
@@ -279,7 +285,8 @@ for epoch in range(config.epochs):
     #wandb.log({"epoch_loss":loss.detach().to("cpu")})
     #logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
     #Evaluation
-    accelerator.save_state(config.output_dir)
+    os.makedirs(os.path.join(config.output_dir,str(epoch)))
+    accelerator.save_state(os.path.join(config.output_dir, str(epoch)))
     model.eval()
     with torch.no_grad():
         epoch_loss = 0.0
@@ -294,11 +301,6 @@ for epoch in range(config.epochs):
             accelerator.log({"val_step_"+k:v.detach().to("cpu") for k,v in outputs.losses.items()})
         accelerator.log({'val_epoch_'+k:v/len(eval_dl) for k,v in losses.items()})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
-os.makedirs(config.output_dir, exist_ok=True)
-with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
-    with redirect_stdout(f): print(config.dump())
-with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
-    json.dump(model_config, f)
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
 accelerator.end_training()
 ## Using XLA for saving model after training for being sure only one copy of the model is saved

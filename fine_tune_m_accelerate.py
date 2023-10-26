@@ -29,8 +29,9 @@ accelerator = Accelerator(log_with="wandb")
 config = CN()
 config.model_dir = 'training_output_22_47_25_10_2023'
 config.fit_indices = [5717, 33042, 21509, 27559, 33027]
+config.decoder_num_layers = 0
 config.epochs = 10
-config.batch_size = 8
+config.batch_size = 16
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
@@ -64,7 +65,7 @@ lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 print(lm_datasets)
 
 #BioZorro Collator
-default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, fit_indices = config.fit_indices)
+default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, target_ids = config.fit_indices)
 
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
@@ -115,14 +116,21 @@ lr_scheduler = get_scheduler(
 if accelerator.is_main_process:
     progress_bar = tqdm(range(num_training_steps))
 
+
+os.makedirs(config.output_dir, exist_ok=True)
+with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
+    with redirect_stdout(f): print(config.dump())
+with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
+    json.dump(model_config, f)
+
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 ## Start model training and defining the training loop
 class CustomModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layer_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
         super().__init__()
         for name,param in model.named_parameters():
-            if "return_tokens" not in name:
+            if not layer_to_unfreeze or layer_to_unfreeze not in name:
                 print(name)
                 param.requires_grad=False
         self.backbone_model = backbone_model
@@ -154,7 +162,12 @@ class CustomModel(nn.Module):
         logits = self.decoder(logits)
         return self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
 
-model = CustomModel(model, backbone_hidden_size = model_config['dim']*4, output_size = 36601)
+if config.fit_indices:
+    output_size = len(config.fit_indices)
+else:
+    output_size = 36601 #total vocab size
+
+model = CustomModel(model, decoder_num_layers=config.decoder_num_layers,layer_to_unfreeze=None,backbone_hidden_size = model_config['dim']*4, output_size = output_size)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )
@@ -187,10 +200,5 @@ for epoch in range(config.epochs):
             accelerator.log({"val_step_total_loss":loss.to("cpu")})
             accelerator.log({k:v.detach().to("cpu") for k,v in metrics.items()})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
-os.makedirs(config.output_dir, exist_ok=True)
-with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
-    with redirect_stdout(f): print(config.dump())
-with open(os.path.join(config.output_dir,'model_config.json'),'w') as f:
-    json.dump(model_config, f)
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
 accelerator.end_training()
