@@ -23,11 +23,15 @@ class BioZorroCollator:
 
 
 class BioZorroCollatorWithTargets:
-    def __init__(self, pad_token=0, pad_len=2048, target_name="velocity", target_size=36601):
+    def __init__(self, pad_token=0, pad_len=2048, target_name="velocity", target_size=36601, target_ids=None):
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.target_name = target_name
-        self.target_size = target_size
+        if target_ids:
+            self.target_size = len(target_ids)
+        else:
+            self.target_size = target_size
+        self.target_ids = target_ids
 
     def __call__(self, data):  # (2)
         collated_data = {k: list() for k in data[0].keys() if self.target_name not in k}
@@ -38,8 +42,18 @@ class BioZorroCollatorWithTargets:
                     length = v.shape[-1]
                     padded_v = pad(v, (0, self.pad_len - length), mode='constant', value=self.pad_token)
                     collated_data[k].append(padded_v)
+            
             targets = torch.zeros(self.target_size, dtype = d[self.target_name+'_data'].dtype)
-            targets[d[self.target_name+'_index']] = d[self.target_name+'_data']
+            if self.target_ids:
+                # Find target ids in the set of target indices, and then add the data to the targets
+                # In the order specified in target_ids. Must be a better way of doing this (pytorchonic way?)
+                for target_idx,target_id in enumerate(self.target_ids):
+                    idx = d[self.target_name+'_index'] == target_id
+                    x = d[self.target_name+'_data'][idx]
+                    y = x.item() if x.nelement() != 0 else 0.0
+                    targets[target_idx]=y    
+            else:
+                targets[d[self.target_name+'_index']] = d[self.target_name+'_data']
             collated_data[self.target_name].append(targets)
         for k, v in collated_data.items():
             collated_data[k] = torch.stack(v)

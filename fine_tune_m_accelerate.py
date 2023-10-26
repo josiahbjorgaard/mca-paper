@@ -27,12 +27,13 @@ from torchmetrics.functional.regression import pearson_corrcoef
 accelerator = Accelerator(log_with="wandb")
 
 config = CN()
-config.model_dir = 'training_output_21_31_23_10_2023'
+config.model_dir = 'training_output_22_47_25_10_2023'
+config.fit_indices = [5717, 33042, 21509, 27559, 33027]
 config.epochs = 10
 config.batch_size = 8
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
-config.lr = 1e-6
+config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
 config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
 config.gene_indices = []
@@ -63,7 +64,7 @@ lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 print(lm_datasets)
 
 #BioZorro Collator
-default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0)
+default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, fit_indices = config.fit_indices)
 
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
@@ -71,7 +72,9 @@ with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
 print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
-load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
+#load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
+checkpoint = torch.load(os.path.join(config.model_dir, 'pytorch_model.bin'))
+model.load_state_dict(checkpoint)
 
 # Initialise your wandb run, passing wandb parameters and any config information
 accelerator.init_trackers(
@@ -116,11 +119,12 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 
 ## Start model training and defining the training loop
 class CustomModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, decoder_num_layers=3, dropout=0.1):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
         super().__init__()
         for name,param in model.named_parameters():
-            #print(name)
-            param.requires_grad=False
+            if "return_tokens" not in name:
+                print(name)
+                param.requires_grad=False
         self.backbone_model = backbone_model
         self.dropout = nn.Dropout(dropout)
         if decoder_num_layers == 0:
@@ -179,8 +183,9 @@ for epoch in range(config.epochs):
     with torch.no_grad():
         epoch_loss = 0.0
         for i, batch in enumerate(tqdm(eval_dl)):
-            loss = model(batch)
+            loss, metrics = model(batch)
             accelerator.log({"val_step_total_loss":loss.to("cpu")})
+            accelerator.log({k:v.detach().to("cpu") for k,v in metrics.items()})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 os.makedirs(config.output_dir, exist_ok=True)
 with open(os.path.join(config.output_dir,'config.yaml'),'w') as f:
