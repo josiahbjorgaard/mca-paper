@@ -15,6 +15,7 @@ from safetensors.torch import load_model
 from transformers import get_scheduler
 
 from encoders import BioZorroCollatorWithTargets
+from velocitymodel import VelocityModel
 
 from yacs.config import CfgNode as CN
 from collections import defaultdict
@@ -29,6 +30,7 @@ accelerator = Accelerator(log_with="wandb")
 config = CN()
 config.model_dir = 'training_output_22_47_25_10_2023'
 config.fit_indices = [5717, 33042, 21509, 27559, 33027]
+config.norm = [0.2,0.5]
 config.decoder_num_layers = 0
 config.epochs = 10
 config.batch_size = 16
@@ -129,7 +131,7 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 class CustomModel(nn.Module):
     def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layer_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
         super().__init__()
-        for name,param in model.named_parameters():
+        for name,param in backbone_model.named_parameters():
             if not layer_to_unfreeze or layer_to_unfreeze not in name:
                 print(name)
                 param.requires_grad=False

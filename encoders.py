@@ -23,7 +23,12 @@ class BioZorroCollator:
 
 
 class BioZorroCollatorWithTargets:
-    def __init__(self, pad_token=0, pad_len=2048, target_name="velocity", target_size=36601, target_ids=None):
+    def __init__(self, pad_token=0, 
+            pad_len=2048, 
+            target_name="velocity", 
+            target_size=36601, 
+            target_ids=None, 
+            norm=[1.0,0.0]):
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.target_name = target_name
@@ -42,7 +47,7 @@ class BioZorroCollatorWithTargets:
                     length = v.shape[-1]
                     padded_v = pad(v, (0, self.pad_len - length), mode='constant', value=self.pad_token)
                     collated_data[k].append(padded_v)
-            
+            #Target data (like velocity)
             targets = torch.zeros(self.target_size, dtype = d[self.target_name+'_data'].dtype)
             if self.target_ids:
                 # Find target ids in the set of target indices, and then add the data to the targets
@@ -54,6 +59,7 @@ class BioZorroCollatorWithTargets:
                     targets[target_idx]=y    
             else:
                 targets[d[self.target_name+'_index']] = d[self.target_name+'_data']
+            targets = targets/norm[0]+norm[1]
             collated_data[self.target_name].append(targets)
         for k, v in collated_data.items():
             collated_data[k] = torch.stack(v)

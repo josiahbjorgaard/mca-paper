@@ -4,10 +4,10 @@ from torchmetrics.functional.regression import pearson_corrcoef
 
 
 ## Start model training and defining the training loop
-class CustomModel(nn.Module):
+class VelocityModel(nn.Module):
     def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layer_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
         super().__init__()
-        for name,param in model.named_parameters():
+        for name,param in backbone_model.named_parameters():
             if not layer_to_unfreeze or layer_to_unfreeze not in name:
                 print(name)
                 param.requires_grad=False
@@ -34,9 +34,14 @@ class CustomModel(nn.Module):
         print(self.decoder)
         self.loss = nn.MSELoss()
         self.metrics = {"pcc":pearson_corrcoef}
-    def forward(self, batch):
+    def forward(self, batch, return_logit=False):
         output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
         logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
         logits = self.decoder(logits)
-        return self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
+        loss, metric = self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
+        if return_logit:
+            return loss, metric, logits
+        else:
+            return loss, metric
+
 
