@@ -70,22 +70,22 @@ def get_grad_norm(model,norm_type=2.0):
 config = CN()
 config.restart = False #'training_output_21_31_23_10_2023' 
 config.epochs = 3
-config.batch_size = 4
+config.batch_size = 2
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.hidden_size = 256
-config.layers = 5
+config.hidden_size = 512
+config.layers = 10
 config.dim_head = 64 #64  # heads*dim_head = intermeidate size?
-config.heads = 4  # num heads
+config.heads = 8  # num heads
 config.ff_mult = 4  # Feed forward multiplier
 config.num_fusion_tokens = 16
-config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
+config.dataset = "/shared/dataset3M" #"/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
-
+config.n_step_checkpoint = 20000
 #If config.restart, will reset all config items to checkpoint yaml
 if config.restart:
     # Allow creating new keys recursively.
@@ -260,7 +260,7 @@ model.train()
 device=accelerator.device
 world_size=torch.cuda.device_count()
 for epoch in range(config.epochs):
-    for batch in train_dl:
+    for idb, batch in enumerate(train_dl):
         batch = {k: v.to(device) for k, v in batch.items()}
         outputs = model(**batch)
         optimizer.zero_grad()
@@ -274,6 +274,8 @@ for epoch in range(config.epochs):
 #           xm.optimizer_step(optimizer)
         optimizer.step()
         lr_scheduler.step()
+        if idb % config.n_step_checkpoint == 0:
+            accelerator.save_state(config.output_dir)
         if accelerator.is_main_process:
             progress_bar.update(world_size)
         accelerator.log({"total_loss":loss.detach().to("cpu")})
@@ -285,7 +287,7 @@ for epoch in range(config.epochs):
     #wandb.log({"epoch_loss":loss.detach().to("cpu")})
     #logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
     #Evaluation
-    os.makedirs(os.path.join(config.output_dir,str(epoch)))
+    os.makedirs(os.path.join(config.output_dir,str(epoch)), exist_ok=True)
     accelerator.save_state(os.path.join(config.output_dir, str(epoch)))
     model.eval()
     with torch.no_grad():

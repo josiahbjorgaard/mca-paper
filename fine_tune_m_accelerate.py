@@ -32,13 +32,20 @@ accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
 
 config = CN()
 config.model_dir = 'training_output_22_47_25_10_2023'
-config.fit_indices = [5717, 33042, 21509, 27559, 33027]
+config.fit_indices = None #[5717, 33042, 21509, 27559, 33027]
 config.norm = [0.2,0.5]
-config.decoder_num_layers = 5
-config.layers_to_unfreeze = "all" #['attn_pool','return_tokens'] # or None
+config.decoder_num_layers = 3
+layers_to_unfreeze = [
+        'return_tokens'
+        'attn_pool.norm.gamma',
+        'attn_pool.to_q.weight',
+        'attn_pool.to_kv.weight',
+        'attn_pool.to_out.weight'
+            ]
+config.layers_to_unfreeze = "all" #layers_to_unfreeze # or [] or "all"
 config.load_checkpoint=False
-config.epochs = 10
-config.batch_size = 6
+config.epochs = 4
+config.batch_size = 8
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
@@ -81,6 +88,7 @@ print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
 if config.load_checkpoint:
+    print(f"Loading checkpoint from {config.model_dir}")
     #load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
     checkpoint = torch.load(os.path.join(config.model_dir, 'pytorch_model.bin'))
     model.load_state_dict(checkpoint)
@@ -170,7 +178,7 @@ for epoch in range(config.epochs):
         for i, batch in enumerate(tqdm(eval_dl)):
             loss, metrics = model(batch)
             accelerator.log({"val_step_total_loss":loss.to("cpu")})
-            accelerator.log({k:v.detach().to("cpu") for k,v in metrics.items()})
+            accelerator.log({"val_step_"+k:v.detach().to("cpu") for k,v in metrics.items()})
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
 accelerator.end_training()
