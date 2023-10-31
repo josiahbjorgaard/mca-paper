@@ -11,8 +11,9 @@ class VelocityModel(nn.Module):
         super().__init__()
         if layers_to_unfreeze != "all":
             for name,param in backbone_model.named_parameters():
-                param.requires_grad = True if name in layers_to_unfreeze else False
-                print(f"{name}:{param.requires_grad}")
+                param.requires_grad = False
+                if layers_to_unfreeze and name in layers_to_unfreeze:
+                    param.requires_grad = True
         self.backbone_model = backbone_model
         self.dropout = nn.Dropout(dropout)
         if decoder_num_layers == 0:
@@ -61,6 +62,7 @@ class VelocityHiddenModel(nn.Module):
                  dim_head = 64,
                  heads = 8,
                  decoder_num_layers=3,
+                 decoder_hidden_size=256,
                  dropout=0.1,
                  vocab_size=2000):
         super().__init__()
@@ -68,8 +70,9 @@ class VelocityHiddenModel(nn.Module):
         # Backbone Model
         if layers_to_unfreeze != "all":
             for name,param in backbone_model.named_parameters():
-                param.requires_grad = True if name in layers_to_unfreeze else False
-                #print(f"{name}:{param.requires_grad}")
+                param.requires_grad = False
+                if layers_to_unfreeze and name in layers_to_unfreeze:
+                    param.requires_grad = True
         self.backbone_model = backbone_model
 
         # Pooling Cross-Attention Layer
@@ -80,6 +83,7 @@ class VelocityHiddenModel(nn.Module):
         return_token_types_tensor = torch.tensor(list(map(lambda t: t.value, return_token_types)))
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
         self.attn_pool = Attention(dim=backbone_hidden_size, dim_head=dim_head, heads=heads)
+        self.heads = heads
         # End Pooling Cross-Attention Layer
 
         # MLP Decoder for Regression

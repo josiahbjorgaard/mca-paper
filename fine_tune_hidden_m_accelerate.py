@@ -31,7 +31,7 @@ config.model_dir = 'training_output_22_47_25_10_2023'
 config.input_size = 1024
 #config.norm = [0.2, 0.5]
 config.decoder_num_layers = 3
-layers_to_unfreeze = None
+config.layers_to_unfreeze = None
 config.load_checkpoint = True
 config.epochs = 4
 config.batch_size = 8
@@ -59,13 +59,13 @@ keep = ['expression_index','expression_data','spliced_index',
         'unspliced_index', 'spliced_data', 'unspliced_data',
         'velocity_index', 'velocity_data']
 remove = list()
-print(lm_datasets)
+accelerator.print(lm_datasets)
 for key in lm_datasets.features.keys():
     if key not in keep:
         remove.append(key)
 lm_datasets = lm_datasets.remove_columns(remove)
 lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
-print(lm_datasets)
+accelerator.print(lm_datasets)
 
 #BioZorro Collator
 default_data_collator = BioZorroCollator(pad_len=512, pad_token=0)
@@ -73,11 +73,11 @@ default_data_collator = BioZorroCollator(pad_len=512, pad_token=0)
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
     model_config = json.load(f)
-print(model_config)
+accelerator.print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
 if config.load_checkpoint:
-    print(f"Loading checkpoint from {config.model_dir}")
+    accelerator.print(f"Loading checkpoint from {config.model_dir}")
     #load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
     checkpoint = torch.load(os.path.join(config.model_dir, 'pytorch_model.bin'))
     model.load_state_dict(checkpoint)
@@ -145,7 +145,7 @@ VelocityHiddenModel init:
                  vocab_size=2000):
 """
 model = VelocityHiddenModel(model,
-                            output_size=config.output_size,
+                            output_size=config.input_size,
                             backbone_hidden_size=model_config['dim'],
                             output_token_type=TokenTypes.GLOBAL,
                             layers_to_unfreeze=config.layers_to_unfreeze,
@@ -153,7 +153,7 @@ model = VelocityHiddenModel(model,
                             heads=model_config['heads'],
                             decoder_num_layers=config.decoder_num_layers,
                             )
-
+accelerator.print(model)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )
