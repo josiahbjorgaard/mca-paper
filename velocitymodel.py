@@ -3,6 +3,7 @@ from torch import nn
 from torchmetrics.functional.regression import pearson_corrcoef
 from encoders import GeneEncoder
 from multizorromodel import TokenTypes, Attention
+from einops import rearrange, repeat, pack, unpack
 
 ## Start model training and defining the training loop
 class VelocityModel(nn.Module):
@@ -48,7 +49,8 @@ class VelocityModel(nn.Module):
 
 class VelocityHiddenModel(nn.Module):
     """
-    Get the final hidden state (before pooling), and initialize a new Cross-Attention 'pooling' layer to make queries with their own nn.Embedding
+    Get the final hidden state (before pooling), and initialize a new Cross-Attention 'pooling' layer
+    to make queries with their own GeneEmbedding
     """
     def __init__(self,
                  backbone_model,
@@ -104,12 +106,16 @@ class VelocityHiddenModel(nn.Module):
         # Loss and Metrics
         self.loss = nn.MSELoss()
         self.metrics = {"pcc":pearson_corrcoef}
+
     def forward(self, batch, return_logit=False):
-        final_hidden_state, token_types_attend_to = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, return_final_hidden_state = True)
+        final_hidden_state, \
+            token_types_attend_to, \
+            padding = self.backbone_model(**{k: v for k, v in batch.items() if 'velocity' not in k},
+                                          return_final_hidden_state=True)
 
         #Function for cross-attention pooling layer
         #return_tokens = repeat(return_tokens, 'n d -> b n d', b=batch)
-        return_tokens = self.embedding(batch) ###!! Add the actual token numbers here)) -> b n d
+        return_tokens = self.embedding(batch['expression_index']) ###!! Add the actual token numbers here)) -> b n d
         return_token_types_tensor = self.return_token_types_tensor
 
         #  self attention for non-global tokens
@@ -125,9 +131,14 @@ class VelocityHiddenModel(nn.Module):
 
         pooled_tokens = self.attn_pool(return_tokens, context=final_hidden_state, attn_mask=pool_mask) + return_tokens
 
-        logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
-        logits = self.decoder(logits)
-        loss, metric = self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
+        #Regression Decoder
+        logits = self.decoder(pooled_tokens)
+        loss, metric = self.loss(logits, batch['velocity']), \
+                       {
+                           k: metric(logits.flatten(), batch['velocity'].flatten())
+                            for k, metric in self.metrics.items()
+                       }
+
         if return_logit:
             return loss, metric, logits
         else:

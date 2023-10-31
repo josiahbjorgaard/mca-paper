@@ -374,7 +374,7 @@ class BioZorro(nn.Module):
 
         #For fine tuning just want the last hidden state here
         if return_final_hidden_state:
-            return tokens, token_types_attend_to
+            return tokens, token_types_attend_to, padding
 
         # final attention pooling - each modality pool token can only attend to its own tokens
 
