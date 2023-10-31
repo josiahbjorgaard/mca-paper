@@ -121,18 +121,23 @@ class VelocityHiddenModel(nn.Module):
         #return_tokens = repeat(return_tokens, 'n d -> b n d', b=batch)
         return_tokens = self.embedding(batch['expression_index']) ###!! Add the actual token numbers here)) -> b n d
         return_token_types_tensor = self.return_token_types_tensor
+        print(f"return_tokens: {return_tokens.shape}")
 
         #  self attention for non-global tokens
         pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
         # global queries can attend to all tokens
         pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
             token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
+        print(f"pool_mask: {pool_mask.shape}")
 
         # Padding mask to pool mask
         padding_mask = repeat(padding, 'b j -> b i j', i=pool_mask.shape[0])
+        print(f"pad_mask: {padding_mask.shape}")
+
         pool_mask = pool_mask * padding_mask
         pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
 
+        print(f"pool_mask*pad_mask reapeasted: {pool_mask.shape}")
         pooled_tokens = self.attn_pool(return_tokens, context=final_hidden_state, attn_mask=pool_mask) + return_tokens
 
         #Regression Decoder
