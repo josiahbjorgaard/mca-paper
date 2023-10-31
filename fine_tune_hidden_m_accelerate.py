@@ -68,7 +68,7 @@ lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 accelerator.print(lm_datasets)
 
 #BioZorro Collator
-default_data_collator = BioZorroCollator(pad_len=512, pad_token=0)
+default_data_collator = BioZorroCollator(pad_len=1024, pad_token=0)
 
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
