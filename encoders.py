@@ -23,6 +23,9 @@ class BioZorroCollator:
 
 
 class BioZorroCollatorWithTargets:
+    """
+    Create a vector with zeros for targets, instead of treating them as a padded sequence.
+    """
     def __init__(self, pad_token=0, 
             pad_len=2048, 
             target_name="velocity", 
