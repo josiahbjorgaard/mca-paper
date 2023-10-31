@@ -249,6 +249,8 @@ class BioZorro(nn.Module):
     ):
         super().__init__()
         self.loss = loss
+
+        #TODO split off the return token types into a separate module so that it can be reused for fine tuning
         self.max_return_tokens = len(return_token_types)
 
         self.return_token_types = return_token_types
@@ -257,6 +259,8 @@ class BioZorro(nn.Module):
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        #End TODO
+
         self.heads = heads # Added
         self.spliced_embedding = BioZorroEncoder(
             num_embeddings = vocab_size, #vocab size
@@ -294,7 +298,8 @@ class BioZorro(nn.Module):
 #            unspliced_attn_mask: Optional[Tensor] = None,
 #            expression_attn_mask: Optional[Tensor] = None,
             return_token_indices: Optional[Tuple[int]] = None,
-            no_loss = False
+            no_loss = False,
+            return_final_hidden_state = False #
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
 
@@ -366,6 +371,10 @@ class BioZorro(nn.Module):
             tokens = layer(tokens, zorro_mask)
 
         tokens = self.norm(tokens)
+
+        #For fine tuning just want the last hidden state here
+        if return_final_hidden_state:
+            return tokens, token_types_attend_to
 
         # final attention pooling - each modality pool token can only attend to its own tokens
 

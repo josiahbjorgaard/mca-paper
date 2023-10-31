@@ -161,7 +161,7 @@ model_config = {
 #    "spliced_input_dim": config.hidden_size, #embedding_size
 #    "unspliced_input_dim": config.hidden_size,
 #    "expression_input_dim": config.hidden_size,
-    "dim_head": config.dim_head, #don't know, head hidden size?
+    "dim_head": config.dim_head, #dim_head * heads = intermediate size
     "heads": config.heads, #num heads
     "ff_mult": config.ff_mult, #Feed forward multiplier
     "num_fusion_tokens": config.num_fusion_tokens,
