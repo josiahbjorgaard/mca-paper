@@ -31,10 +31,11 @@ ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
 
 config = CN()
-config.model_dir = 'training_output_22_47_25_10_2023'
+config.model_dir = 'training_output_02_39_30_10_2023'
 config.fit_indices = None #[5717, 33042, 21509, 27559, 33027]
-config.norm = [0.2,0.5]
-config.decoder_num_layers = 3
+config.norm = [0.05,0.5]
+config.decoder_num_layers = 2
+config.decoder_hidden_size = 1024
 layers_to_unfreeze = [
         'return_tokens'
         'attn_pool.norm.gamma',
@@ -42,20 +43,20 @@ layers_to_unfreeze = [
         'attn_pool.to_kv.weight',
         'attn_pool.to_out.weight'
             ]
-config.layers_to_unfreeze = "all" #layers_to_unfreeze # or [] or "all"
+config.layers_to_unfreeze = layers_to_unfreeze # or [] or "all"
 config.load_checkpoint=False
 config.epochs = 4
-config.batch_size = 8
+config.batch_size = 16
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
+config.dataset = "/efs-private/single_cell_data/out_veloc_data_unfiltered"
 config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
-
+config.output_type = ["global_output"]
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,13 +71,13 @@ keep = ['expression_index','expression_data','spliced_index',
         'unspliced_index', 'spliced_data', 'unspliced_data',
         'velocity_index', 'velocity_data']
 remove = list()
-print(lm_datasets)
+accelerator.print(lm_datasets)
 for key in lm_datasets.features.keys():
     if key not in keep:
         remove.append(key)
 lm_datasets = lm_datasets.remove_columns(remove)
 lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
-print(lm_datasets)
+accelerator.print(lm_datasets)
 
 #BioZorro Collator
 default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, target_ids = config.fit_indices, norm=config.norm)
@@ -84,11 +85,11 @@ default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, t
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
     model_config = json.load(f)
-print(model_config)
+accelerator.print(model_config)
 
 model = BioZorro(**model_config) #.to(device)
 if config.load_checkpoint:
-    print(f"Loading checkpoint from {config.model_dir}")
+    accelerator.print(f"Loading checkpoint from {config.model_dir}")
     #load_model(model, os.path.join(config.model_dir, 'model.safetensors'))
     checkpoint = torch.load(os.path.join(config.model_dir, 'pytorch_model.bin'))
     model.load_state_dict(checkpoint)
@@ -145,9 +146,9 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 if config.fit_indices:
     output_size = len(config.fit_indices)
 else:
-    output_size = 36601 #total vocab size
+    output_size = 2000 #36601 #total vocab size
 
-model = VelocityModel(model, decoder_num_layers=config.decoder_num_layers,layers_to_unfreeze=config.layers_to_unfreeze,backbone_hidden_size = model_config['dim']*4, output_size = output_size)
+model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,layers_to_unfreeze=config.layers_to_unfreeze,backbone_hidden_size = model_config['dim']*len(config.output_type),output_types=config.output_type, output_size = output_size)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )

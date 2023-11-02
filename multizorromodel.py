@@ -160,7 +160,7 @@ class BioZorroLayer(nn.Module):
         self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
                  
-    def forward(self, batch, zorro_mask):
+    def forward(self, batch, zorro_mask=None):
         batch = self.attn(batch, attn_mask=zorro_mask) + batch
         batch = self.ff(batch) + batch
         return batch

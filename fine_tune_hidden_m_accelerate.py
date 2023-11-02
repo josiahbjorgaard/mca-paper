@@ -23,28 +23,41 @@ from accelerate import Accelerator
 
 from accelerate import DistributedDataParallelKwargs
 
-ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
-
 config = CN()
-config.model_dir = 'training_output_22_47_25_10_2023'
+#config.model_dir = 'training_output_22_47_25_10_2023'
+config.model_dir = "training_output_02_39_30_10_2023"
 config.input_size = 1024
-#config.norm = [0.2, 0.5]
+config.norm = [0.005, 0.5]
 config.decoder_num_layers = 3
 config.layers_to_unfreeze = None
+
+config.layers_to_unfreeze = ['layers.9.attn.norm.gamma',
+'layers.9.attn.to_q.weight',
+'layers.9.attn.to_kv.weight',
+'layers.9.attn.to_out.weight',
+'layers.9.ff.0.gamma',
+'layers.9.ff.1.weight',
+'layers.9.ff.3.weight'
+                        ]
+
 config.load_checkpoint = True
 config.epochs = 4
-config.batch_size = 8
+config.batch_size = 6
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.dataset = "/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all_veloc_sparse"
+config.dataset = "/efs-private/single_cell_data/out_veloc_data_unfiltered"
 config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
+config.find_unused_parameters = False
+config.token_type = "GLOBAL"
+config.attn_layers = 0
 
+ddp_kwargs = DistributedDataParallelKwargs(config.find_unused_parameters)
+accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,11 +160,12 @@ VelocityHiddenModel init:
 model = VelocityHiddenModel(model,
                             output_size=config.input_size,
                             backbone_hidden_size=model_config['dim'],
-                            output_token_type=TokenTypes.GLOBAL,
+                            output_token_type=TokenTypes[config.token_type],
                             layers_to_unfreeze=config.layers_to_unfreeze,
                             dim_head=model_config['dim_head'],
                             heads=model_config['heads'],
                             decoder_num_layers=config.decoder_num_layers,
+                            attn_layers=config.attn_layers,
                             )
 accelerator.print(model)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
@@ -163,6 +177,7 @@ device=accelerator.device
 world_size=torch.cuda.device_count()
 for epoch in range(config.epochs):
     for batch in train_dl:
+        batch['velocity_data'] = batch['velocity_data']*config.norm[0]+config.norm[1]
         batch = {k: v.to(device) for k, v in batch.items()}
         loss, metrics = model(batch)
         optimizer.zero_grad()

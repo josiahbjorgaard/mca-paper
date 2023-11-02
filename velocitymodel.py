@@ -2,12 +2,21 @@ import torch
 from torch import nn
 from torchmetrics.functional.regression import pearson_corrcoef
 from encoders import GeneEncoder
-from multizorromodel import TokenTypes, Attention
+from multizorromodel import TokenTypes, Attention, BioZorroLayer
 from einops import rearrange, repeat, pack, unpack
+
+def sample_min(pred,target):
+    return torch.min(target)
+
+def sample_max(pred,target):
+    return torch.max(target)
+
+def sample_mean(pred,target):
+    return torch.mean(target)
 
 ## Start model training and defining the training loop
 class VelocityModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None, output_types=["fusion","global_output"]):
         super().__init__()
         if layers_to_unfreeze != "all":
             for name,param in backbone_model.named_parameters():
@@ -34,12 +43,13 @@ class VelocityModel(nn.Module):
                                     nn.Linear(decoder_hidden_size_in, decoder_hidden_size_out),
                               ]
         self.decoder = nn.Sequential(*layers)
-        print(self.decoder)
+        print(f"{self.decoder = }")
         self.loss = nn.MSELoss()
-        self.metrics = {"pcc":pearson_corrcoef}
+        self.metrics = {"pcc":pearson_corrcoef, "min":sample_min, "max": sample_max, "mean": sample_mean}
+        self.output_types = output_types #"expression","spliced","unspliced","fusion","global_output"
     def forward(self, batch, return_logit=False):
         output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
-        logits = torch.cat([output.expression, output.spliced, output.unspliced, output.fusion], dim=1)
+        logits = torch.cat([output[otype] for otype in self.output_types], dim=1)
         logits = self.decoder(logits)
         loss, metric = self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
         if return_logit:
@@ -61,6 +71,8 @@ class VelocityHiddenModel(nn.Module):
                  layers_to_unfreeze=None,
                  dim_head = 64,
                  heads = 8,
+                 attn_layers=0,
+                 ff_mult=4,
                  decoder_num_layers=3,
                  decoder_hidden_size=256,
                  dropout=0.1,
@@ -72,6 +84,7 @@ class VelocityHiddenModel(nn.Module):
             for name,param in backbone_model.named_parameters():
                 param.requires_grad = False
                 if layers_to_unfreeze and name in layers_to_unfreeze:
+                    print(f"unfreezing {name}")
                     param.requires_grad = True
         self.backbone_model = backbone_model
 
@@ -85,6 +98,12 @@ class VelocityHiddenModel(nn.Module):
         self.attn_pool = Attention(dim=backbone_hidden_size, dim_head=dim_head, heads=heads)
         self.heads = heads
         # End Pooling Cross-Attention Layer
+
+        #Additional Transformer Layers TODO: add paddding mask
+        layers = []
+        for _ in range(attn_layers):
+            layers.append(BioZorroLayer(dim=backbone_hidden_size, dim_head=dim_head, heads=heads, ff_mult=ff_mult)) 
+        self.attn_layers = nn.Sequential(*layers)
 
         # MLP Decoder for Regression
         self.dropout = nn.Dropout(dropout)
@@ -109,7 +128,7 @@ class VelocityHiddenModel(nn.Module):
 
         # Loss and Metrics
         self.loss = nn.MSELoss()
-        self.metrics = {"pcc":pearson_corrcoef}
+        self.metrics = {"pcc":pearson_corrcoef,"max":sample_max,"min":sample_min, "mean",sample_mean}
 
     def forward(self, batch, return_logit=False):
         final_hidden_state, \
@@ -119,7 +138,7 @@ class VelocityHiddenModel(nn.Module):
 
         #Function for cross-attention pooling layer
         #return_tokens = repeat(return_tokens, 'n d -> b n d', b=batch)
-        return_tokens = self.embedding(batch['expression_index']) ###!! Add the actual token numbers here)) -> b n d
+        return_tokens = self.embedding(batch['velocity_index']) ###!! Add the actual token numbers here)) -> b n d
         return_token_types_tensor = self.return_token_types_tensor
         #print(f"return_tokens: {return_tokens.shape}")
 
@@ -138,26 +157,19 @@ class VelocityHiddenModel(nn.Module):
         pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
 
         #print(f"pool_mask*pad_mask reapeasted: {pool_mask.shape}")
-        pooled_tokens = self.attn_pool(return_tokens, context=final_hidden_state, attn_mask=pool_mask) + return_tokens
-        print(f"{pooled_tokens.shape = }")
+        tokens = self.attn_pool(return_tokens, context=final_hidden_state, attn_mask=pool_mask) + return_tokens
+        #print(f"{tokens.shape = }")
+        
+        tokens = self.attn_layers(tokens)
 
         #Regression Decoder
-        logits = self.decoder(pooled_tokens).squeeze()
+        logits = self.decoder(tokens).squeeze()
+        #print(f"{logits.shape = }")
         loss_mask = batch['velocity_index'] != 0
         targets = batch['velocity_data'][loss_mask]
-        targets = target/targets.max()
         logits = logits[loss_mask]
-        print(f"{loss_mask.shape = }")
-        print(f"{logits.shape = }")
-        print(f"{batch['velocity_data'].shape = }")
         loss = self.loss(logits, targets)
-        metric = 0.0
-        """
-                        {
-                           k: metric(logits.flatten(), batch['velocity_data'].flatten())
-                            for k, metric in self.metrics.items()
-                       }
-        """
+        metric =  { k: metric(logits.flatten(), targets.flatten()) for k, metric in self.metrics.items() }
         if return_logit:
             return loss, metric, logits
         else:

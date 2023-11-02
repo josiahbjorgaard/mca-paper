@@ -29,7 +29,7 @@ class BioZorroCollatorWithTargets:
     def __init__(self, pad_token=0, 
             pad_len=2048, 
             target_name="velocity", 
-            target_size=36601, 
+            target_size=2000, 
             target_ids=None, 
             norm=[1.0,0.0]):
         self.pad_token = pad_token
