@@ -36,7 +36,7 @@ config.fit_indices = [ 286, 1037, 1519, 1752]
 config.norm = [0.2,0.0]
 config.decoder_num_layers = 0
 config.decoder_hidden_size = 1024
-config.final_hidden_state = False
+config.final_hidden_state = True
 config.layers_to_unfreeze = [
 #        'return_tokens'
 #        'attn_pool.norm.gamma',
@@ -58,6 +58,7 @@ config.ds_seed = 42
 config.model = 3
 config.output_type = ["global_output","fusion","expression"]
 config.find_unused_parameters = False
+config.pad_length = 1024
 
 ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=config.find_unused_parameters)
 accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
@@ -84,7 +85,7 @@ lm_datasets = lm_datasets.train_test_split(0.1, seed=config.ds_seed)
 accelerator.print(lm_datasets)
 
 #BioZorro Collator
-default_data_collator = BioZorroCollatorWithTargets(pad_len=1024, pad_token=0, target_ids = config.fit_indices, norm=config.norm)
+default_data_collator = BioZorroCollatorWithTargets(pad_len=config.pad_length, pad_token=0, target_ids = config.fit_indices, norm=config.norm)
 
 #### MODEL
 with open(os.path.join(config.model_dir,'model_config.json'),'r') as f:
@@ -151,7 +152,8 @@ if config.fit_indices:
     output_size = len(config.fit_indices)
 else:
     output_size = 2000 #36601 #total vocab size
-backbone_hidden_size = model_config['dim']*len(config.output_type) if not config.final_hidden_state else model_config['dim']*4
+print(model_config)
+backbone_hidden_size = model_config['dim']*len(config.output_type) if not config.final_hidden_state else config.pad_length*3+model_config['num_fusion_tokens']
 model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,
                         final_hidden_state=config.final_hidden_state,layers_to_unfreeze=config.layers_to_unfreeze,
                         backbone_hidden_size = backbone_hidden_size, output_types=config.output_type, 
