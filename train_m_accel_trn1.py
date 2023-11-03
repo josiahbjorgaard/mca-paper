@@ -24,7 +24,7 @@ import wandb
 
 config = CN()
 config.epochs = 100
-config.freeze_layers=6
+config.freeze_layers = 6
 config.batch_size = 2
 config.warmup_steps = 1000
 config.lr = 1e-4
