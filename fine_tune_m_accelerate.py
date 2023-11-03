@@ -30,18 +30,20 @@ from accelerate import DistributedDataParallelKwargs
 config = CN()
 config.model_dir = 'training_output_02_39_30_10_2023'
 config.fit_indices = [ 286, 1037, 1519, 1752]
+#config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
+#                        1410,1519,1524,1751,1752,1753,1754,1756,
+#                        1758,1760,1767,1779,1781,1783,1784,1791,]
 config.norm = [0.2,0.0]
 config.decoder_num_layers = 0
 config.decoder_hidden_size = 1024
-config.final_hidden_state = True
-layers_to_unfreeze = [
-        'return_tokens'
-        'attn_pool.norm.gamma',
-        'attn_pool.to_q.weight',
-        'attn_pool.to_kv.weight',
-        'attn_pool.to_out.weight'
+config.final_hidden_state = False
+config.layers_to_unfreeze = [
+#        'return_tokens'
+#        'attn_pool.norm.gamma',
+#        'attn_pool.to_q.weight',
+#        'attn_pool.to_kv.weight',
+#        'attn_pool.to_out.weight'
             ]
-config.layers_to_unfreeze = [] #layers_to_unfreeze # or [] or "all"
 config.load_checkpoint=False
 config.epochs = 4
 config.batch_size = 16
