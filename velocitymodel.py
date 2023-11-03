@@ -14,9 +14,18 @@ def sample_max(pred,target):
 def sample_mean(pred,target):
     return torch.mean(target)
 
+def logit_min(pred,target):
+    return torch.min(pred)
+
+def logit_max(pred,target):
+    return torch.max(pred)
+
+def logit_mean(pred,target):
+    return torch.mean(pred)
+
 ## Start model training and defining the training loop
 class VelocityModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None, output_types=["fusion","global_output"]):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, final_hidden_state=False, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None, output_types=["fusion","global_output"]):
         super().__init__()
         if layers_to_unfreeze != "all":
             for name,param in backbone_model.named_parameters():
@@ -24,6 +33,7 @@ class VelocityModel(nn.Module):
                 if layers_to_unfreeze and name in layers_to_unfreeze:
                     param.requires_grad = True
         self.backbone_model = backbone_model
+        self.final_hidden_state = final_hidden_state
         self.dropout = nn.Dropout(dropout)
         if decoder_num_layers == 0:
             decoder_hidden_size = output_size
@@ -45,13 +55,24 @@ class VelocityModel(nn.Module):
         self.decoder = nn.Sequential(*layers)
         print(f"{self.decoder = }")
         self.loss = nn.MSELoss()
-        self.metrics = {"pcc":pearson_corrcoef, "min":sample_min, "max": sample_max, "mean": sample_mean}
+        self.metrics = {"pcc":pearson_corrcoef, "min":sample_min, "max": sample_max, "mean": sample_mean, "logit_mean": logit_mean, "logit_min": logit_min, "logit_max": logit_max}
         self.output_types = output_types #"expression","spliced","unspliced","fusion","global_output"
     def forward(self, batch, return_logit=False):
-        output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
-        logits = torch.cat([output[otype] for otype in self.output_types], dim=1)
+        if self.final_hidden_state:
+            logits, \
+                token_types_attend_to, \
+                padding = self.backbone_model(**{k: v for k, v in batch.items() if 'velocity' not in k},
+                                          return_final_hidden_state=True, no_loss=True)
+            # TODO This needs to be pooled somehow, it's heads,tokens,embdim large
+            print(logits.shape)
+        else:
+            output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
+            logits = torch.cat([output[otype] for otype in self.output_types], dim=1)
+
         logits = self.decoder(logits)
-        loss, metric = self.loss(logits, batch['velocity']), {k:metric(logits.flatten(), batch['velocity'].flatten()) for k,metric in self.metrics.items()}
+        target_mask = batch['velocity'] !=0
+        targets = batch['velocity'][target_mask]
+        loss, metric = self.loss(logits[target_mask], targets), {k:metric(logits[target_mask].flatten(), targets.flatten()) for k,metric in self.metrics.items()}
         if return_logit:
             return loss, metric, logits
         else:
@@ -128,7 +149,7 @@ class VelocityHiddenModel(nn.Module):
 
         # Loss and Metrics
         self.loss = nn.MSELoss()
-        self.metrics = {"pcc":pearson_corrcoef,"max":sample_max,"min":sample_min, "mean",sample_mean}
+        self.metrics = {"pcc":pearson_corrcoef,"max":sample_max,"min":sample_min, "mean":sample_mean}
 
     def forward(self, batch, return_logit=False):
         final_hidden_state, \

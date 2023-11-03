@@ -27,15 +27,13 @@ from torchmetrics.functional.regression import pearson_corrcoef
 
 from accelerate import DistributedDataParallelKwargs
 
-ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
-
 config = CN()
 config.model_dir = 'training_output_02_39_30_10_2023'
-config.fit_indices = None #[5717, 33042, 21509, 27559, 33027]
-config.norm = [0.05,0.5]
-config.decoder_num_layers = 2
+config.fit_indices = [ 286, 1037, 1519, 1752]
+config.norm = [0.2,0.0]
+config.decoder_num_layers = 0
 config.decoder_hidden_size = 1024
+config.final_hidden_state = True
 layers_to_unfreeze = [
         'return_tokens'
         'attn_pool.norm.gamma',
@@ -43,7 +41,7 @@ layers_to_unfreeze = [
         'attn_pool.to_kv.weight',
         'attn_pool.to_out.weight'
             ]
-config.layers_to_unfreeze = layers_to_unfreeze # or [] or "all"
+config.layers_to_unfreeze = [] #layers_to_unfreeze # or [] or "all"
 config.load_checkpoint=False
 config.epochs = 4
 config.batch_size = 16
@@ -56,7 +54,11 @@ config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
-config.output_type = ["global_output"]
+config.output_type = ["global_output","fusion","expression"]
+config.find_unused_parameters = False
+
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=config.find_unused_parameters)
+accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,8 +149,11 @@ if config.fit_indices:
     output_size = len(config.fit_indices)
 else:
     output_size = 2000 #36601 #total vocab size
-
-model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,layers_to_unfreeze=config.layers_to_unfreeze,backbone_hidden_size = model_config['dim']*len(config.output_type),output_types=config.output_type, output_size = output_size)
+backbone_hidden_size = model_config['dim']*len(config.output_type) if not config.final_hidden_state else model_config['dim']*4
+model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,
+                        final_hidden_state=config.final_hidden_state,layers_to_unfreeze=config.layers_to_unfreeze,
+                        backbone_hidden_size = backbone_hidden_size, output_types=config.output_type, 
+                        output_size = output_size)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler
      )
