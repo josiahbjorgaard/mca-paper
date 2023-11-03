@@ -1,5 +1,5 @@
-from yacs.config import CN
-import datetime
+from yacs.config import CfgNode as CN
+from datetime import datetime
 import os
 from contextlib import redirect_stdout
 import json
@@ -25,14 +25,14 @@ def get_cfg_defaults_train():
     config.num_fusion_tokens = 16
     config.dataset = "/shared/dataset3M" #"/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
     config.split = 0.1
-    config.ds_frac = 1
+    config.ds_frac = 1.0
     config.ds_seed = 42
     config.pad_len = 1024
     config.model = 3
     config.n_step_checkpoint = 20000
     config.run_eval_loop = True
     #If config.restart, will reset all config items to checkpoint yaml
-
+    return config.clone()
 
 def restart_cfg(config):
     """

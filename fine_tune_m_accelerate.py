@@ -29,12 +29,12 @@ from accelerate import DistributedDataParallelKwargs
 
 config = CN()
 config.model_dir = 'training_output_02_39_30_10_2023'
-config.fit_indices = [ 286, 1037, 1519, 1752]
-#config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
-#                        1410,1519,1524,1751,1752,1753,1754,1756,
-#                        1758,1760,1767,1779,1781,1783,1784,1791,]
+#config.fit_indices = [ 286, 1037, 1519, 1752]
+config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
+                        1410,1519,1524,1751,1752,1753,1754,1756,
+                        1758,1760,1767,1779,1781,1783,1784,1791,]
 config.norm = [0.2,0.0]
-config.decoder_num_layers = 0
+config.decoder_num_layers = 1
 config.decoder_hidden_size = 1024
 config.final_hidden_state = True
 config.layers_to_unfreeze = [
@@ -153,7 +153,7 @@ if config.fit_indices:
 else:
     output_size = 2000 #36601 #total vocab size
 print(model_config)
-backbone_hidden_size = model_config['dim']*len(config.output_type) if not config.final_hidden_state else config.pad_length*3+model_config['num_fusion_tokens']
+backbone_hidden_size = model_config['dim']*len(config.output_type) if not config.final_hidden_state else model_config['dim'] #config.pad_length*3+model_config['num_fusion_tokens']
 model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,
                         final_hidden_state=config.final_hidden_state,layers_to_unfreeze=config.layers_to_unfreeze,
                         backbone_hidden_size = backbone_hidden_size, output_types=config.output_type, 
