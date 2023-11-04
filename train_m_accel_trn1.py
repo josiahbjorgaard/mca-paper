@@ -24,7 +24,7 @@ import wandb
 
 config = CN()
 config.epochs = 100
-config.freeze_layers = 6
+config.freeze_layers=6
 config.batch_size = 2
 config.warmup_steps = 1000
 config.lr = 1e-4
@@ -137,9 +137,9 @@ if __name__ == '__main__':
             ## xm.optimizer_step is performing the sum of all the gradients updates done in the different Cores
             xm.optimizer_step(optimizer)
             progress_bar.update(1)
-            #
+
         if xm.is_master_ordinal(local=False):
-            wandb.log({"epoch_loss":loss.detach().to("cpu")})
+            wandb.log({"epoch_loss": loss.detach().to("cpu")})
         logger.info("Epoch {}, rank {}, Loss {:0.4f}".format(epoch, xm.get_ordinal(), loss.detach().to("cpu")))
 
     logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
