@@ -6,6 +6,8 @@ from tqdm.auto import tqdm
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
 from transformers import get_scheduler
 
 from multizorromodel import BioZorro
@@ -34,8 +36,6 @@ world_size = xm.xrt_world_size()
 logger.info("Workers: {}".format(world_size))
 logger.info("Device: {}".format(device))
 #########
-
-#accelerator = Accelerator(log_with="wandb")
 
 config = training_config(sys.argv[1])
 
@@ -104,7 +104,6 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 if config.restart:
     raise Exception("Checkpoint reload not implemented for trn1")
     logger.info(f"Loading saved state from {config.restart}")
-    #accelerator.load_state(config.restart)
     if config.reset_lr:
         for param_group in optimizer.param_groups:
             param_group['lr'] = config.reset_lr
@@ -112,7 +111,6 @@ if config.restart:
 # Start model training and defining the training loop
 
 model.train()
-device = accelerator.device
 world_size = torch.cuda.device_count()
 for epoch in range(config.epochs):
     for idb, batch in enumerate(train_dl):
