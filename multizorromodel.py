@@ -482,10 +482,14 @@ class BioZorroWithLeaveOneOut(nn.Module):
             ff_mult=4,
             num_fusion_tokens=16,
             vocab_size=36601,
-            return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
-                                                     TokenTypes.EXPRESSION, TokenTypes.FUSION,
+            return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED,
+                                                     TokenTypes.UNSPLICED,
+                                                     TokenTypes.EXPRESSION,
+                                                     TokenTypes.FUSION,
+                                                     TokenTypes.FUSION,
+                                                     TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
-            loss=BioZorroPretrainingLoss()
+            loss=BioZorroPretrainingLossFLOOM()
     ):
         super().__init__()
         self.loss = loss
