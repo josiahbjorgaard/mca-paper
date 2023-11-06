@@ -109,7 +109,7 @@ if config.restart:
             param_group['lr'] = config.reset_lr
 
 # Start model training and defining the training loop
-
+model.to(device)
 model.train()
 world_size = torch.cuda.device_count()
 for epoch in range(config.epochs):
@@ -119,20 +119,26 @@ for epoch in range(config.epochs):
         outputs = model(**batch)
         optimizer.zero_grad()
         loss = outputs.loss
+        loss.backward()
         xm.optimizer_step(optimizer)
         lr_scheduler.step()
-        # Log and checkpoint
+        #xm.add_step_closure(training_metrics_closure, (epoch, global_step, loss.detach(), optimizer.param_groups[0]['lr'],grad_norm, param_norm),run_async=False) #no data dependency with next mark_step
+
+    # Log and checkpoint
         if xm.is_master_ordinal(local=False):
+            #print(outputs)
+            #xm.rendezvous("Saving Checkpoint")
             progress_bar.update(world_size)
-            wandb.log({"total_loss": loss.detach().to("cpu")})
-            wandb.log({k: v.detach().to("cpu") for k,v in outputs.losses.items()})
-            wandb.log({"param_norm": get_param_norm(model).to("cpu"),
-                             "grad_norm": get_grad_norm(model).to("cpu")})
-            wandb.log({"lr": optimizer.param_groups[0]['lr']})
+            #wandb.log({"total_loss": loss.detach().to("cpu")})
+            #wandb.log({k: v.detach().to("cpu") for k,v in outputs.losses.items()})
+            #wandb.log({"param_norm": get_param_norm(model).to("cpu"),
+            #                "grad_norm": get_grad_norm(model).to("cpu")})
+            #wandb.log({"lr": optimizer.param_groups[0]['lr']})
 
 ## Using XLA for saving model after training for being sure only one copy of the model is saved
 os.makedirs(config.output_dir, exist_ok=True)
 checkpoint = {"state_dict": model.state_dict()}
+xm.rendezvous("Saving Checkpoint")
 xm.save(checkpoint, f"{config.output_dir}/checkpoint.pt")
 
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
