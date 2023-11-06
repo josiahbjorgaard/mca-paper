@@ -7,8 +7,6 @@ import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from accelerate import Accelerator, DistributedType
-from accelerate.utils import set_seed
 
 from transformers import get_scheduler
 
@@ -33,33 +31,15 @@ torch.distributed.init_process_group('xla')
 device = xm.xla_device()
 rank = xm.get_ordinal()
 world_size = xm.xrt_world_size()
-args = parse_args()
-accelerator_log_kwargs = {}
-accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
 
 # Get the global number of workes.
-print("Workers: {}".format(world_size))
-print("Device: {}".format(device))
+logger.info("Workers: {}".format(world_size))
+logger.info("Device: {}".format(device))
 #########
 
-# Make one log on every process with the configuration for debugging.
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
-)
-logger.info(accelerator.state, main_process_only=False)
-if accelerator.is_local_main_process:
-    datasets.utils.logging.set_verbosity_warning()
-    transformers.utils.logging.set_verbosity_info()
-else:
-    datasets.utils.logging.set_verbosity_error()
-    transformers.utils.logging.set_verbosity_error()
-
 config = training_config(sys.argv[1])
-# If passed along, set the training seed now.
-if args.seed is not None:
-    set_seed(config.seed, device_specific=False)
+
+torch.manual_seed(0)
 
 datasets = setup_data(config.dataset,
                       split=config.split,
@@ -71,49 +51,50 @@ default_data_collator = BioZorroCollator(pad_len=config.pad_len, pad_token=0)
 model_config = get_model_config(config)
 model = BioZorro(**model_config)
 
-if xm.is_master_ordinal(local=False):
-    config.n_params_emb, \
-    config.n_params_nonemb = count_parameters(model, print_summary=False)
+config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
 # Initialise your wandb run, passing wandb parameters and any config information
 ##Wandb causes an exception running in distributed mode
 if xm.is_master_ordinal(local=False):
     wandb.init(
         entity="josiahbjorgaard",
-        config=config,
         project="Multimodal2",
     )
 
+## Create a subsed of data sampler, for parallelizing the training across multiple cores
+if world_size > 1:
+    train_sampler = DistributedSampler(
+        datasets["train"],
+        num_replicas=world_size,
+        rank=xm.get_ordinal(),
+        shuffle=True,
+    )
+
 ## Creating a DataLoader object for iterating over it during the training epochs
-train_dataloader = DataLoader(
-                        train_dataset, shuffle=True, collate_fn=default_data_collator,
-                        batch_size=config.batch_size,
-                        prefetch_factor=4, num_workers=2
-                )
+train_dl = DataLoader(
+    datasets["train"],
+    collate_fn=default_data_collator,
+    batch_size=config.batch_size,
+    sampler=train_sampler,
+    shuffle=False if train_sampler else True)
 
-optimizer = AdamW(model.parameters(), lr=config.lr)
-
-# Prepare everything with our `accelerator`.
-model, optimizer, train_dataloader = accelerator.prepare(
-    model, optimizer, train_dataloader
-)
+## Loading a subset of the data in the different Neuron Cores provided as input
+train_device_loader = pl.MpDeviceLoader(train_dl, device)
 
 xm.master_print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
 xm.master_print(f"Number of non-embedding parameters: {config.n_params_nonemb/10**6}M")
 xm.master_print(f"Number of training samples: {len(datasets['train'])}")
-xm.master_print(f"Number of training batches per epoch: {len(train_dataloader)}")
+xm.master_print(f"Number of training batches per epoch: {len(train_dl)}")
 
-num_training_steps = config.epochs * len(train_dataloader)
+num_training_steps = config.epochs * len(train_dl)
 
+optimizer = AdamW(model.parameters(), lr=config.lr)
 lr_scheduler = get_scheduler(
         name=config.lr_scheduler_type,
         optimizer=optimizer,
         num_warmup_steps=config.num_warmup_steps,
         num_training_steps=num_training_steps,
     )
-
-if accelerator.distributed_type == DistributedType.TPU:
-    model.tie_weights()
 
 #if xm.is_master_ordinal(local=False): #.is_main_process:
 progress_bar = tqdm(range(num_training_steps))
@@ -128,17 +109,20 @@ if config.restart:
             param_group['lr'] = config.reset_lr
 
 # Start model training and defining the training loop
+model.to(device)
+model.train()
+world_size = torch.cuda.device_count()
 for epoch in range(config.epochs):
-    model.train()
-    for idb, batch in enumerate(train_dataloader):
+    for idb, batch in enumerate(train_device_loader):
+        # Training
+        #batch = {k: v.to(device) for k, v in batch.items()}
+        #print(f"{device} {batch['spliced_index'].device} {model.spliced_embedding.gene_encoder.embedding}")
         outputs = model(**batch)
         optimizer.zero_grad()
         loss = outputs.loss
         loss.backward()
-        optimizer.optimizer.step()
+        xm.optimizer_step(optimizer)
         lr_scheduler.step()
-        optimizer.zero_grad()
-        xm.mark_step()
         #xm.add_step_closure(training_metrics_closure, (epoch, global_step, loss.detach(), optimizer.param_groups[0]['lr'],grad_norm, param_norm),run_async=False) #no data dependency with next mark_step
 
     # Log and checkpoint
