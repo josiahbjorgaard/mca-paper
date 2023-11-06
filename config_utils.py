@@ -31,6 +31,7 @@ def get_cfg_defaults_train():
     config.model = 3
     config.n_step_checkpoint = 20000
     config.run_eval_loop = True
+    config.vocab_size = 36602
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
 
@@ -65,6 +66,7 @@ def get_model_config(config):
         "heads": config.heads,  # num heads
         "ff_mult": config.ff_mult,  # Feed forward multiplier
         "num_fusion_tokens": config.num_fusion_tokens,
+        "vocab_size": config.vocab_size,
     }
     return model_config
 

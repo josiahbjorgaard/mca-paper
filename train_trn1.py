@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 ########
 # XLA
 ########
-device = "xla"
-
-torch.distributed.init_process_group(device)
+torch.distributed.init_process_group('xla')
+device = xm.xla_device()
+rank = xm.get_ordinal()
+world_size = xm.xrt_world_size()
 
 # Get the global number of workes.
-world_size = xm.xrt_world_size()
 logger.info("Workers: {}".format(world_size))
 logger.info("Device: {}".format(device))
 #########
@@ -96,8 +96,8 @@ lr_scheduler = get_scheduler(
         num_training_steps=num_training_steps,
     )
 
-if xm.is_master_ordinal(local=False): #.is_main_process:
-    progress_bar = tqdm(range(num_training_steps))
+#if xm.is_master_ordinal(local=False): #.is_main_process:
+progress_bar = tqdm(range(num_training_steps))
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
@@ -113,9 +113,10 @@ model.to(device)
 model.train()
 world_size = torch.cuda.device_count()
 for epoch in range(config.epochs):
-    for idb, batch in enumerate(train_dl):
+    for idb, batch in enumerate(train_device_loader):
         # Training
-        batch = {k: v.to(device) for k, v in batch.items()}
+        #batch = {k: v.to(device) for k, v in batch.items()}
+        #print(f"{device} {batch['spliced_index'].device} {model.spliced_embedding.gene_encoder.embedding}")
         outputs = model(**batch)
         optimizer.zero_grad()
         loss = outputs.loss
@@ -125,10 +126,10 @@ for epoch in range(config.epochs):
         #xm.add_step_closure(training_metrics_closure, (epoch, global_step, loss.detach(), optimizer.param_groups[0]['lr'],grad_norm, param_norm),run_async=False) #no data dependency with next mark_step
 
     # Log and checkpoint
-        if xm.is_master_ordinal(local=False):
+        #if xm.is_master_ordinal(local=False):
             #print(outputs)
             #xm.rendezvous("Saving Checkpoint")
-            progress_bar.update(world_size)
+        progress_bar.update(world_size)
             #wandb.log({"total_loss": loss.detach().to("cpu")})
             #wandb.log({k: v.detach().to("cpu") for k,v in outputs.losses.items()})
             #wandb.log({"param_norm": get_param_norm(model).to("cpu"),

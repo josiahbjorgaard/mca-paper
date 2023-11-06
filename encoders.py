@@ -72,7 +72,7 @@ class BioZorroCollatorWithTargets:
 
 class BioZorroEncoder(nn.Module):
     def __init__(self,
-                 num_embeddings = 18817, #Vocab size
+                 num_embeddings = 36602, #Vocab size
                  embedding_dim = 512, #size of embedding vector
                  padding_idx = 0, #padding (no entry) token
                  dropout = 0.0,
@@ -85,7 +85,8 @@ class BioZorroEncoder(nn.Module):
     def forward(self, index: Tensor, counts: Tensor) -> Tensor:
         x_g = self.gene_encoder(index)
         x_c = self.counts_encoder(counts)
-        x = x_g + x_c
+        #x = x_g + x_c
+        x = x_c
         return x
 
 class GeneEncoder(nn.Module):
@@ -97,12 +98,17 @@ class GeneEncoder(nn.Module):
         max_norm: Optional[float] = 1.0
     ):
         super().__init__()
+        self.num_embeddings = num_embeddings #debug
         self.embedding = nn.Embedding(
-            num_embeddings, embedding_dim, padding_idx=padding_idx, max_norm=max_norm
+            num_embeddings, embedding_dim, padding_idx=padding_idx #, max_norm=max_norm
         )
-
+        #print(f"{self.embedding = }")
     def forward(self, x: Tensor) -> Tensor:
-        x = self.embedding(x)  # (batch, seq_len, embsize)
+        #xmin = x.min().min()
+        #print(f"{xmin = }")
+        #print(f"{self.num_embeddings = }")
+        #print(f"{x.device = }")
+        #x = self.embedding(x)  # (batch, seq_len, embsize)
         #print(f"Check g {x[:,-1,-1]}")
         return x
 

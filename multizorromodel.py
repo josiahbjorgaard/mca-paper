@@ -241,7 +241,7 @@ class BioZorro(nn.Module):
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
-            vocab_size=36601,
+            vocab_size=36602,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
@@ -302,7 +302,8 @@ class BioZorro(nn.Module):
             return_final_hidden_state = False #
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
-
+        print(f"{spliced_index.dtype = }")
+        print(f"{spliced_data.dtype = }")
         spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
         unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
         #for i in range(batch):
@@ -311,7 +312,7 @@ class BioZorro(nn.Module):
         #        print(f"Last bit of spliced tokens {i},{j},{spliced_index[i,-5:]}: {spliced_tokens[i,-5:,j]}")
         expression_tokens = self.expression_embedding(expression_index, expression_data)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
-
+        #exit()
         # construct all tokens
 
         spliced_tokens, \
