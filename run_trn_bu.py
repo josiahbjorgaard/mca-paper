@@ -1,68 +1,39 @@
-import json
+"""
+Fine-tuning the library models for causal language modeling (GPT, GPT-2, CTRL, ...)
+on a text file or a dataset without using HuggingFace Trainer.
+
+Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
+https://huggingface.co/models?filter=text-generation
+"""
+
 import logging
-import math
-import os
-import random
-from itertools import chain
-from pathlib import Path
 import pickle
 import torch_neuronx
 import datasets
 import torch
-from datasets import load_dataset
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-import queue
 import transformers
 from accelerate import Accelerator, DistributedType
-from accelerate.logging import get_logger
 from accelerate.utils import set_seed
-from huggingface_hub import Repository, create_repo
-from transformers import (
-    CONFIG_MAPPING,
-    MODEL_MAPPING,
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoModelForMaskedLM,
-    BertForMaskedLM,
-    AutoModel,
-    AutoTokenizer,
-    SchedulerType,
-    #default_data_collator,
-    DataCollatorForLanguageModeling,
-    get_scheduler,
-    BertLayer,
-    GPT2Config,
-    GPT2Model,
-    GPT2LMHeadModel,
-    GPTNeoConfig,
-    GPTNeoModel,
-    GPTNeoForCausalLM
-)
+from transformers import get_scheduler
 
-from transformers.models.gpt2.modeling_gpt2 import GPT2Block
-from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoBlock
-
-import time
-import contextlib
-from transformers.modeling_utils import PreTrainedModel
-from transformers.trainer_pt_utils import get_module_class_from_name
 from transformers.utils import check_min_version, get_full_repo_name, send_example_telemetry
 from transformers.utils.versions import require_version
 
-import numpy as np
 import torch_xla.utils.serialization as xser
 import functools
 import torch_xla.core.xla_model as xm
 from torch_xla.distributed.fsdp import XlaFullyShardedDataParallel as FSDP
 from torch_xla.distributed.fsdp.wrap import transformer_auto_wrap_policy
 import torch_xla.distributed.xla_backend
-from torch_xla.distributed.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 from neuron_utils import *
-from accelerate.utils.imports import is_tpu_available
 
-from geneformer.pretrainer import GeneformerPreCollator
+from biozorromodel import BioZorro, BioZorroLayer
+from encoders import BioZorroCollator
+
+from accelerate.logging import get_logger
 # we need to use the torch_xla checkpoint. Otherwise the some checkpointing patterns will be eliminated by the compiler common expression elimination
 torch.utils.checkpoint.checkpoint = torch_xla.utils.checkpoint.checkpoint
 
@@ -104,16 +75,12 @@ def get_param_norm(
     norm_type = float(norm_type)
     local_norm = torch.DoubleTensor([0.0]).to('xla')
     parameters = model.parameters()
-    grads_for_norm = []
     for param in parameters:
         param_norm = torch.norm(param.detach(), norm_type)
         local_norm += param_norm ** norm_type
 
     if args.use_fsdp:
         total_norm = model.all_reduce_op(xm.REDUCE_SUM, local_norm, groups=groups)
-        total_norm = total_norm**(1.0 / norm_type)
-    elif args.use_zero1:
-        total_norm = xm.all_reduce(xm.REDUCE_SUM, local_norm, groups=groups, pin_layout=False)
         total_norm = total_norm**(1.0 / norm_type)
     else:
         total_norm = local_norm**(1.0 / norm_type)
@@ -130,7 +97,6 @@ def get_grad_norm(
     norm_type = float(norm_type)
     local_norm = torch.FloatTensor([float(0.0)]).to('xla')
     parameters = model.parameters()
-    grads_for_norm = []
     for param in parameters:
         grad_not_none = param.grad is not None
         if grad_not_none:
@@ -192,21 +158,27 @@ def main():
         set_seed(args.seed, device_specific=False)
 
     #### MODEL
-    config = AutoConfig.from_pretrained(args.model_name_or_path)
-    tokenizer = type('obj', (object,), {'model_max_length' : args.block_size})
-    model = BertForMaskedLM(config)
+    config = {
+        "dim": 512, #hidden size
+        "depth": 7, #layers
+        "spliced_input_dim": 512, #embedding_size
+        "unspliced_input_dim": 512,
+        "dim_head":64, #don't know, head hidden size?
+        "heads": 8, #num heads
+        "ff_mult": 4, #Feed forward multiplier
+        "num_fusion_tokens": 16,
+    }
+
+    model = BioZorro(**config)
     
     if xm.is_master_ordinal(local=False):
         n_params = count_parameters(model)
         print(f'TOTAL PARAMETERS: {n_params}')
 
-    model_dtype = get_dtype(model)
-    #extract_graphs_only = os.environ.get("NEURON_EXTRACT_GRAPHS_ONLY", None)
-    
     if args.use_fsdp:
         auto_wrap_policy = functools.partial(
                 transformer_auto_wrap_policy,
-                transformer_layer_cls=(BertLayer,)
+                transformer_layer_cls=(BioZorroLayer,)
             )
         fsdp_params = dict(flatten_parameters=False,
                                shard_param_on_dim_0=True,
@@ -223,25 +195,19 @@ def main():
 
     #### DATASET
     xm.master_print("Loading tokenized dataset from ", args.load_tokenized_dataset)
-    lm_datasets = load_from_disk(args.load_tokenized_dataset)
-    for part in lm_datasets.keys():
-        lm_datasets[part] = lm_datasets[part].remove_columns("length")
-
+    lm_datasets = load_from_disk(args.load_tokenized_dataset).with_format('torch')
+    keep =  ['spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
+    remove = list()
+    for key in lm_datasets.features.keys():
+        if key not in keep:
+            remove.append(key)
+    lm_datasets = lm_datasets.remove_columns(remove)
+    lm_datasets = lm_datasets.train_test_split(0.1)
     train_dataset = lm_datasets["train"]
     eval_dataset = lm_datasets["test"]
-
-    if args.dataset_fraction<1.0:
-        train_dataset = train_dataset.select(list(range(0,int(len(train_dataset)*args.dataset_fraction))))
-        eval_dataset = eval_dataset.select(list(range(0,int(len(eval_dataset)*args.dataset_fraction))))
-
-    #Geneformer Collator
-    with open("/efs-private/Genecorpus-30M/token_dictionary.pkl", "rb") as fp:
-        token_dictionary = pickle.load(fp)
-    precollator = GeneformerPreCollator(token_dictionary=token_dictionary)
-    default_data_collator = DataCollatorForLanguageModeling(
-        tokenizer=precollator, mlm=True, mlm_probability=0.15,
-        pad_to_multiple_of=2048
-        )
+    
+    #BioZorro Collator
+    default_data_collator = BioZorroCollator(pad_len=2048, pad_token=0)
 
     # DataLoaders creation:
     train_dataloader = DataLoader(
@@ -287,9 +253,10 @@ def main():
         num_training_steps=args.max_train_steps,
     )
 
-    # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
-    if accelerator.distributed_type == DistributedType.TPU:
-        model.tie_weights()
+    if args.use_fsdp:
+        # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
+        if accelerator.distributed_type == DistributedType.TPU:
+            model.tie_weights()
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     args.max_train_steps = args.num_train_epochs * len(train_dataloader) 
@@ -301,7 +268,7 @@ def main():
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
         experiment_config["n_params"] = n_params
         wandb.init(
-                project="Geneformer Pretraining",
+                project="BioZorro",
                 config=experiment_config,
                 entity="josiahbjorgaard",
                 )
@@ -426,7 +393,7 @@ def main():
                 xm.add_step_closure(eval_metrics_closure, (running_loss_reduced, 'step', global_eval_step), run_async=False)
             xm.add_step_closure(eval_metrics_closure, (epoch_loss/len(eval_dataloader), 'epoch', epoch), run_async=False)
 
-    if args.with_tracking:
+    if args.with_tracking():
         wandb.finish()
 
 if __name__ == "__main__":
