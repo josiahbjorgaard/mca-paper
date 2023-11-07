@@ -312,6 +312,7 @@ class BioZorro(nn.Module):
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
+            isolate_fusion_tokens=False,
             vocab_size=36602,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
@@ -606,14 +607,13 @@ class BioZorroWithLeaveOneOut(nn.Module):
         # Fusion leave one out mask
         floom_mask = [token_types != i for i in range(-1, 3)]
         if self.isolate_fusion_tokens:
-            for idx, tokens in enumerate(floom_mask):
+            for idx, floom in enumerate(floom_mask):
                 a = self.num_fusion_tokens *(-4+idx)
                 b = self.num_fusion_tokens*(-3+idx)-1
-                tokens[-self.num_fusion_tokens*4:] = False
-                tokens[a:b]= True
+                floom[-self.num_fusion_tokens*4:] = False
+                floom[a:b]= True
         floom_mask = repeat(floom_mask, 'i j -> (i i2) j', i2=self.num_fusion_tokens)
         zorro_mask[token_types == TokenTypes.FUSION.value] = floom_mask
-
         # Padding tokens mask
         # Using the index data, but should use an input attention mask properly
         # And a custom Padding token via the Dataloader/collator

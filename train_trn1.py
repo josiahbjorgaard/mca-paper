@@ -54,8 +54,8 @@ if accelerator.is_local_main_process:
 else:
     datasets.utils.logging.set_verbosity_error()
     transformers.utils.logging.set_verbosity_error()
-
-config = training_config(sys.argv[1])
+config_file = 'config.yaml'
+config = training_config(config_file)
 # If passed along, set the training seed now.
 if config.seed is not None:
     set_seed(config.seed, device_specific=False)

@@ -53,9 +53,12 @@ os.environ['HF_DATASETS_CACHE']="/shared/.cache/datasets"
 os.environ['TRANSFORMERS_CACHE']="/shared/.cache/transformers"
 os.environ['NEURON_COMPILE_CACHE_URL']="/shared/.cache/neuron"
 
+os.environ['XLA_IR_DEBUG']=1
+os.environ['XLA_HLO_DEBUG']=1
+
 # Uncomment below to keep only 2 subgraphs loaded at a time
 #os.environ['NEURON_NUM_RECENT_MODELS_TO_KEEP'] = '3' #4 will result in OOM
-
+"""
 if os.environ.get("XLA_DOWNCAST_BF16") == '1':
     Bf16 = torch.finfo(torch.bfloat16)
     Fp32 = torch.finfo(torch.float32)
@@ -64,7 +67,7 @@ if os.environ.get("XLA_DOWNCAST_BF16") == '1':
 if os.environ.get("XLA_USE_BF16") == '1':
     Bf16 = torch.finfo(torch.bfloat16)
     torch.finfo = lambda a:Bf16
-
+"""
 def get_param_norm(
     args,
     model,
