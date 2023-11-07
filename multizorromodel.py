@@ -605,7 +605,7 @@ class BioZorroWithLeaveOneOut(nn.Module):
 
         # Fusion leave one out mask
         floom_mask = [token_types != i for i in range(-1, 3)]
-        if self.isolate_fusions:
+        if self.isolate_fusion_tokens:
             for idx, tokens in enumerate(floom_mask):
                 a = self.num_fusion_tokens *(-4+idx)
                 b = self.num_fusion_tokens*(-3+idx)-1
