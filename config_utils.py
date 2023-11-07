@@ -22,11 +22,13 @@ def get_cfg_defaults_train():
     config.dim_head = 64 #64  # heads*dim_head = intermeidate size?
     config.heads = 8  # num heads
     config.ff_mult = 4  # Feed forward multiplier
-    config.num_fusion_tokens = 16
+    config.num_fusion_tokens = 256
     config.dataset = "/shared/dataset3M" #"/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
     config.split = 0.1
     config.ds_frac = 1.0
     config.ds_seed = 42
+    config.seed = 42
+    config.isolate_fusion_tokens = True
     config.pad_len = 1024
     config.model = 3
     config.n_step_checkpoint = 20000
@@ -67,6 +69,7 @@ def get_model_config(config):
         "ff_mult": config.ff_mult,  # Feed forward multiplier
         "num_fusion_tokens": config.num_fusion_tokens,
         "vocab_size": config.vocab_size,
+        "isolate_fusion_tokens": config.isolate_fusion_tokens
     }
     return model_config
 

@@ -6,7 +6,7 @@ sudo sysctl -w net.ipv4.ip_local_reserved_ports=44000,48620
 sudo sysctl -w kernel.threads-max=10000000
 ulimit -c unlimited
 
-NUM_NEURONCORES=32
+NUM_NEURONCORES=1 #32
 DISTRIBUTED_ARGS="--nproc_per_node $NUM_NEURONCORES"
 
 LD_PRELOAD="/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4"
@@ -41,16 +41,16 @@ export NEURON_RT_STOCHASTIC_ROUNDING_EN=1
 if [[ "BF16" == $TRAINING_PRECISION ]]; then
     echo "USING BF16 ONLY"
     export XLA_USE_BF16=1
-    export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --model-type transformer"
+    export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --model-type transformer -O1"
 elif [[ "MIXED" == $TRAINING_PRECISION ]]; then
     echo "USING MIXED PRECISION BF16 and FP32"
-    export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --enable-mixed-precision-accumulation --model-type transformer --enable-experimental-spmd --internal-ccop-bucketing --internal-ccop-bucketing-allgather-size-in-bytes 62481600 --internal-ccop-bucketing-reducescatter-size-in-bytes 62481600 --internal-ccop-bucketing-allreduce-size-in-bytes 1 --tensorizer-options=\'--no-enable-tritium-loopfusion\'"
+    export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --enable-mixed-precision-accumulation --model-type transformer --enable-experimental-spmd --internal-ccop-bucketing --internal-ccop-bucketing-allgather-size-in-bytes 62481600 --internal-ccop-bucketing-reducescatter-size-in-bytes 62481600 --internal-ccop-bucketing-allreduce-size-in-bytes 1 --tensorizer-options=\'--no-enable-tritium-loopfusion\' -O1"
 else
     echo "USING FP32 as default"
-    export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --model-type transformer"
+    export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --model-type transformer -O1"
 fi
 
-NEURON_CC_FLAGS+=" -O1" #--cache_dir=$HOME/neuron_cache/gpt_1p5B/`hostname`"
+#NEURON_CC_FLAGS+=" -O1" #--cache_dir=$HOME/neuron_cache/gpt_1p5B/`hostname`"
 
 export DISABLE_NUMERIC_CC_TOKEN=1
 export NEURON_RT_HIERARCHICAL_CC=1
@@ -60,42 +60,4 @@ export TF_NUM_INTEROP_THREADS=8192
 
 export NEURON_ENABLE_NOSEED_DROPOUT=1
 
-GRAD_ACCUM_STEP=1
-BATCH_SIZE=4 #1
-#MODEL_CONFIG="/efs-private/Geneformer/geneformer-12L-30M" #"config_1p5B_gpt2.json"
-MODEL_SIZE=$(echo $CONFIG | grep -m 1 -Eo '[0-9MBp]+' | head -n1 | tr -d '\n')
-#DATASET_CONFIG=$2
-DATASET_CONFIG=None
-
-if [ $GRAD_ACCUM_STEP -gt 1 ]; then
-    echo "need to uncomment accelerator.py code to run"
-    ./uncomment_gradaccum.sh
-fi
-
-MAX_STEPS=242230
-LOG_FILE_NAME="run_log_hf_geneformer_pretraining_param_"$MODEL_SIZE"_nodes"$WORLD_SIZE_JOB"_grad_accum"$GRAD_ACCUM_STEP"_bs"$BATCH_SIZE_$(date +"%m-%d-%Y")_$(date +"%H:%M:%S")
-if [[ "$NEURON_EXTRACT_GRAPHS_ONLY" == "1" ]]; then
-    MAX_STEPS=10
-    LOG_FILE_NAME="compile_log_hf_gpt2_param_"$MODEL_SIZE"_grad_accum"$GRAD_ACCUM_STEP"_bs"$BATCH_SIZE_$(date +"%m-%d-%Y")_$(date +"%H:%M:%S")
-fi
-# linear doesn't seem to work
-#    --config_name "/efs-private/Geneformer/config.json" \
-torchrun $DISTRIBUTED_ARGS run_trn.py \
-    --model_name_or_path "" \
-    --block_size 2048 \
-    --load_tokenized_dataset "/efs-private/multimodal/data/filtered_protein_mrna_genes" \
-    --tokenizer_name "None" \
-    --dataset_config_name $DATASET_CONFIG  \
-    --per_device_train_batch_size $BATCH_SIZE \
-    --gradient_accumulation_steps $GRAD_ACCUM_STEP \
-    --max_train_steps $MAX_STEPS \
-    --weight_decay 0.001 \
-    --num_labels 1 \
-    --learning_rate 0.00015 \
-    --lr_scheduler_type cosine \
-    --gradient_checkpointing \
-    --seed 1234 \
-    --num_warmup_steps 75 \
-    --use_grad_clipping \
-    --output_dir geneformer_test_1 \
-    |& tee $LOG_FILE_NAME
+torchrun $DISTRIBUTED_ARGS train_trn1.py $2 

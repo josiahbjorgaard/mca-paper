@@ -173,7 +173,17 @@ class BioZorroPretrainingLossesCollection(ModelOutput):
     fusion_loss_spliced: Optional[Tensor] = None
     fusion_loss_unspliced: Optional[Tensor] = None
     fusion_loss_expression: Optional[Tensor] = None
-    
+
+@dataclass
+class BioZorroPretrainingFLOOMLossesCollection(ModelOutput):
+    contrastive_loss_spliced_unspliced: Optional[Tensor] = None
+    contrastive_loss_spliced_expression: Optional[Tensor] = None
+    contrastive_loss_unspliced_expression: Optional[Tensor] = None
+    fusion_loss_spliced: Optional[Tensor] = None
+    fusion_loss_unspliced: Optional[Tensor] = None
+    fusion_loss_expression: Optional[Tensor] = None
+    fusion_loss_invariance: Optional[Tensor] = None
+
 
 @dataclass
 class BioZorroPretrainingLossOutput(ModelOutput):
@@ -228,7 +238,7 @@ class BioZorroPretrainingLoss(nn.Module):
 
 @dataclass
 class BioZorroPretrainingLossFLOOMOutput(ModelOutput):
-    losses: BioZorroPretrainingLossesCollection = field(default_factory=BioZorroPretrainingLossesCollection)
+    losses: BioZorroPretrainingFLOOMLossesCollection = field(default_factory=BioZorroPretrainingFLOOMLossesCollection)
     spliced: Optional[Tensor] = None
     unspliced: Optional[Tensor] = None
     expression: Optional[Tensor] = None
@@ -250,7 +260,7 @@ class BioZorroPretrainingLossFLOOM(nn.Module):
         self.fusion_loss_spliced = ContrastiveLossWithTemperature()
         self.fusion_loss_unspliced = ContrastiveLossWithTemperature()
         self.fusion_loss_expression = ContrastiveLossWithTemperature()
-        self.fusion_invariance = nn.MSELoss()
+        self.fusion_loss_invariance = nn.MSELoss()
 
     def forward(
             self,
@@ -262,9 +272,9 @@ class BioZorroPretrainingLossFLOOM(nn.Module):
         outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
         outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
         outputs.fusion = pooled_tokens[:, 3, :].squeeze(1)
-        outputs.fusion_floom_spliced[:, 4, :].squeeze(1)
-        outputs.fusion_floom_unspliced[:, 5, :].squeeze(1)
-        outputs.fusion_floom_expression[:, 6, :].squeeze(1)
+        outputs.fusion_floom_spliced = pooled_tokens[:, 4, :].squeeze(1)
+        outputs.fusion_floom_unspliced = pooled_tokens[:, 5, :].squeeze(1)
+        outputs.fusion_floom_expression = pooled_tokens[:, 6, :].squeeze(1)
         outputs.global_output = pooled_tokens[:, 7, :].squeeze(1)
 
         if no_loss:
@@ -276,16 +286,16 @@ class BioZorroPretrainingLossFLOOM(nn.Module):
         outputs.losses.fusion_loss_spliced = self.fusion_loss_spliced(outputs.spliced, outputs.fusion)
         outputs.losses.fusion_loss_unspliced = self.fusion_loss_unspliced(outputs.unspliced, outputs.fusion)
         outputs.losses.fusion_loss_expression = self.fusion_loss_expression(outputs.expression,outputs.fusion)
-        outputs.losses.fusion_invariance = self.fusion_invariance(outputs.fusion, outputs.fusion_floom_spliced) + \
-                                           self.fusion_invariance(outputs.fusion, outputs.fusion_floom_unspliced) + \
-                                           self.fusion_invariance(outputs.fusion, outputs.fusion_floom_expression)
+        outputs.losses.fusion_loss_invariance = self.fusion_loss_invariance(outputs.fusion, outputs.fusion_floom_spliced) + \
+                                           self.fusion_loss_invariance(outputs.fusion, outputs.fusion_floom_unspliced) + \
+                                           self.fusion_loss_invariance(outputs.fusion, outputs.fusion_floom_expression)
         outputs.loss = outputs.losses.contrastive_loss_spliced_unspliced + \
                        outputs.losses.contrastive_loss_spliced_expression + \
                        outputs.losses.contrastive_loss_unspliced_expression + \
                        outputs.losses.fusion_loss_spliced + \
                        outputs.losses.fusion_loss_unspliced + \
                        outputs.losses.fusion_loss_expression + \
-                       outputs.losses.fusion_invariance
+                       outputs.losses.fusion_loss_invariance
         return outputs
 # main class
 
@@ -363,8 +373,6 @@ class BioZorro(nn.Module):
             return_final_hidden_state = False #
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
-        print(f"{spliced_index.dtype = }")
-        print(f"{spliced_data.dtype = }")
         spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
         unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
         #for i in range(batch):
@@ -481,10 +489,12 @@ class BioZorroWithLeaveOneOut(nn.Module):
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
+            isolate_fusion_tokens=True,
             vocab_size=36601,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED,
                                                      TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION,
+                                                     TokenTypes.FUSION,
                                                      TokenTypes.FUSION,
                                                      TokenTypes.FUSION,
                                                      TokenTypes.FUSION,
@@ -493,7 +503,7 @@ class BioZorroWithLeaveOneOut(nn.Module):
     ):
         super().__init__()
         self.loss = loss
-
+        self.isolate_fusion_tokens = isolate_fusion_tokens
         # TODO split off the return token types into a separate module so that it can be reused for fine tuning
         self.max_return_tokens = len(return_token_types)
 
@@ -595,6 +605,12 @@ class BioZorroWithLeaveOneOut(nn.Module):
 
         # Fusion leave one out mask
         floom_mask = [token_types != i for i in range(-1, 3)]
+        if self.isolate_fusions:
+            for idx, tokens in enumerate(floom_mask):
+                a = self.num_fusion_tokens *(-4+idx)
+                b = self.num_fusion_tokens*(-3+idx)-1
+                tokens[-self.num_fusion_tokens*4:] = False
+                tokens[a:b]= True
         floom_mask = repeat(floom_mask, 'i j -> (i i2) j', i2=self.num_fusion_tokens)
         zorro_mask[token_types == TokenTypes.FUSION.value] = floom_mask
 
@@ -651,7 +667,7 @@ class BioZorroWithLeaveOneOut(nn.Module):
         floom_pool_mask = torch.block_diag(torch.ones((1, self.num_fusion_tokens)),
                                            torch.ones((1, self.num_fusion_tokens)),
                                            torch.ones((1, self.num_fusion_tokens)),
-                                           torch.ones((1, self.num_fusion_tokens)))
+                                           torch.ones((1, self.num_fusion_tokens))).to(pool_mask.device)
         select_mask = (return_token_types_tensor == TokenTypes.FUSION.value).unsqueeze(1) * \
                       (token_types == TokenTypes.FUSION.value).unsqueeze(0)
         pool_mask[select_mask] = floom_pool_mask.to(torch.bool).flatten()

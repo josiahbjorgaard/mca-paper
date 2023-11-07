@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from accelerate import Accelerator, DistributedType
 from accelerate.utils import set_seed
-
+import transformers
 from transformers import get_scheduler
 
 from multizorromodel import BioZorro
@@ -17,7 +17,7 @@ from encoders import BioZorroCollator
 from training_utils import get_param_norm, get_grad_norm, count_parameters
 from config_utils import training_config, get_model_config
 from dataset_utils import setup_data
-
+import datasets
 import wandb
 
 import torch_xla.core.xla_model as xm
@@ -33,9 +33,8 @@ torch.distributed.init_process_group('xla')
 device = xm.xla_device()
 rank = xm.get_ordinal()
 world_size = xm.xrt_world_size()
-args = parse_args()
 accelerator_log_kwargs = {}
-accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
+accelerator = Accelerator( **accelerator_log_kwargs)
 
 # Get the global number of workes.
 print("Workers: {}".format(world_size))
@@ -58,7 +57,7 @@ else:
 
 config = training_config(sys.argv[1])
 # If passed along, set the training seed now.
-if args.seed is not None:
+if config.seed is not None:
     set_seed(config.seed, device_specific=False)
 
 datasets = setup_data(config.dataset,
@@ -84,6 +83,13 @@ if xm.is_master_ordinal(local=False):
         project="Multimodal2",
     )
 
+datasets = setup_data(config.dataset,
+                      split=config.split,
+                      ds_frac=config.ds_frac,
+                      ds_seed=config.ds_seed)
+
+train_dataset = datasets['train']
+print(train_dataset)
 ## Creating a DataLoader object for iterating over it during the training epochs
 train_dataloader = DataLoader(
                         train_dataset, shuffle=True, collate_fn=default_data_collator,
@@ -93,15 +99,16 @@ train_dataloader = DataLoader(
 
 optimizer = AdamW(model.parameters(), lr=config.lr)
 
+print(next(iter(train_dataloader)))
 # Prepare everything with our `accelerator`.
 model, optimizer, train_dataloader = accelerator.prepare(
     model, optimizer, train_dataloader
 )
-
-xm.master_print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
-xm.master_print(f"Number of non-embedding parameters: {config.n_params_nonemb/10**6}M")
-xm.master_print(f"Number of training samples: {len(datasets['train'])}")
-xm.master_print(f"Number of training batches per epoch: {len(train_dataloader)}")
+if xm.is_master_ordinal(local=False):
+    xm.master_print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
+    xm.master_print(f"Number of non-embedding parameters: {config.n_params_nonemb/10**6}M")
+    xm.master_print(f"Number of training samples: {len(datasets['train'])}")
+    xm.master_print(f"Number of training batches per epoch: {len(train_dataloader)}")
 
 num_training_steps = config.epochs * len(train_dataloader)
 
@@ -112,8 +119,8 @@ lr_scheduler = get_scheduler(
         num_training_steps=num_training_steps,
     )
 
-if accelerator.distributed_type == DistributedType.TPU:
-    model.tie_weights()
+#if accelerator.distributed_type == DistributedType.TPU:
+#    model.tie_weights()
 
 #if xm.is_master_ordinal(local=False): #.is_main_process:
 progress_bar = tqdm(range(num_training_steps))

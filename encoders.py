@@ -85,8 +85,7 @@ class BioZorroEncoder(nn.Module):
     def forward(self, index: Tensor, counts: Tensor) -> Tensor:
         x_g = self.gene_encoder(index)
         x_c = self.counts_encoder(counts)
-        #x = x_g + x_c
-        x = x_c
+        x = x_g + x_c
         return x
 
 class GeneEncoder(nn.Module):
@@ -100,16 +99,10 @@ class GeneEncoder(nn.Module):
         super().__init__()
         self.num_embeddings = num_embeddings #debug
         self.embedding = nn.Embedding(
-            num_embeddings, embedding_dim, padding_idx=padding_idx #, max_norm=max_norm
+            num_embeddings, embedding_dim, padding_idx=padding_idx, max_norm=max_norm
         )
-        #print(f"{self.embedding = }")
     def forward(self, x: Tensor) -> Tensor:
-        #xmin = x.min().min()
-        #print(f"{xmin = }")
-        #print(f"{self.num_embeddings = }")
-        #print(f"{x.device = }")
-        #x = self.embedding(x)  # (batch, seq_len, embsize)
-        #print(f"Check g {x[:,-1,-1]}")
+        x = self.embedding(x)  # (batch, seq_len, embsize)
         return x
 
 

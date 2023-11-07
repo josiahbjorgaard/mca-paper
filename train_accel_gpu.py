@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from collections import defaultdict
 
-from multizorromodel import BioZorro
+from multizorromodel import BioZorroWithLeaveOneOut as BioZorro
 from encoders import BioZorroCollator
 from training_utils import get_param_norm, get_grad_norm, count_parameters
 from config_utils import training_config, get_model_config
