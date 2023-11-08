@@ -9,7 +9,8 @@ import torch
 from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
-from multizorromodel import BioZorro
+#from multizorromodel import BioZorro
+from multizorromodel import BioZorroWithLeaveOneOut as BioZorro
 from safetensors.torch import load_model
 
 from transformers import get_scheduler
@@ -28,25 +29,28 @@ from torchmetrics.functional.regression import pearson_corrcoef
 from accelerate import DistributedDataParallelKwargs
 
 config = CN()
-config.model_dir = 'training_output_02_39_30_10_2023'
+#config.model_dir = 'training_output_02_39_30_10_2023' #Big one
+#config.model_dir = 'training_output_23_45_06_11_2023'
+config.model_dir = "training_output_01_30_07_11_2023"
 #config.fit_indices = [ 286, 1037, 1519, 1752]
 config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
                         1410,1519,1524,1751,1752,1753,1754,1756,
                         1758,1760,1767,1779,1781,1783,1784,1791,]
 config.norm = [0.2,0.0]
-config.decoder_num_layers = 1
+config.decoder_num_layers = 0
 config.decoder_hidden_size = 1024
-config.final_hidden_state = True
+config.final_hidden_state = False #True
 config.layers_to_unfreeze = [
-#        'return_tokens'
-#        'attn_pool.norm.gamma',
-#        'attn_pool.to_q.weight',
-#        'attn_pool.to_kv.weight',
-#        'attn_pool.to_out.weight'
+        'return_tokens'
+        'attn_pool.norm.gamma',
+        'attn_pool.to_q.weight',
+        'attn_pool.to_kv.weight',
+        'attn_pool.to_out.weight'
             ]
 config.load_checkpoint=False
 config.epochs = 4
-config.batch_size = 16
+config.batch_size = 8
+config.vocab_size = 36602
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
@@ -56,7 +60,7 @@ config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
-config.output_type = ["global_output","fusion","expression"]
+config.output_type = ["fusion"]
 config.find_unused_parameters = False
 config.pad_length = 1024
 

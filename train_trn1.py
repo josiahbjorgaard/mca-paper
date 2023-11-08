@@ -12,7 +12,7 @@ from accelerate.utils import set_seed
 import transformers
 from transformers import get_scheduler
 
-from multizorromodel import BioZorro
+from multizorromodel_trn1 import BioZorro
 from encoders import BioZorroCollator
 from training_utils import get_param_norm, get_grad_norm, count_parameters
 from config_utils import training_config, get_model_config
