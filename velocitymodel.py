@@ -64,12 +64,12 @@ class VelocityModel(nn.Module):
                 padding = self.backbone_model(**{k: v for k, v in batch.items() if 'velocity' not in k},
                                           return_final_hidden_state=True, no_loss=True)
             # TODO This needs to be pooled somehow, it's heads,tokens,embdim large
-            pooling_op = torch.sum
+            pooling_op = torch.mean
             logits = pooling_op(logits, dim=1) 
         else:
             output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
-            logits = torch.cat([output[otype] for otype in self.output_types], dim=1)
-
+            logit_output = torch.stack([output[otype] for otype in self.output_types], dim=0)
+            logits = torch.mean(logit_output, dim=0)
         logits = self.decoder(logits)
         target_mask = batch['velocity'] !=0
         targets = batch['velocity'][target_mask]

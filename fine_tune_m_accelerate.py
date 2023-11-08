@@ -60,7 +60,7 @@ config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
-config.output_type = ["fusion"]
+config.output_type = ["fusion", "fusion_floom_spliced", "fusion_floom_unspliced", "fusion_floom_expression"]
 config.find_unused_parameters = False
 config.pad_length = 1024
 
@@ -157,7 +157,7 @@ if config.fit_indices:
 else:
     output_size = 2000 #36601 #total vocab size
 print(model_config)
-backbone_hidden_size = model_config['dim']*len(config.output_type) if not config.final_hidden_state else model_config['dim'] #config.pad_length*3+model_config['num_fusion_tokens']
+backbone_hidden_size = model_config['dim'] #config.pad_length*3+model_config['num_fusion_tokens']
 model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,
                         final_hidden_state=config.final_hidden_state,layers_to_unfreeze=config.layers_to_unfreeze,
                         backbone_hidden_size = backbone_hidden_size, output_types=config.output_type, 
