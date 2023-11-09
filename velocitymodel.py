@@ -58,6 +58,7 @@ class VelocityModel(nn.Module):
         self.metrics = {"pcc":pearson_corrcoef, "min":sample_min, "max": sample_max, "mean": sample_mean, "logit_mean": logit_mean, "logit_min": logit_min, "logit_max": logit_max}
         self.output_types = output_types #"expression","spliced","unspliced","fusion","global_output"
     def forward(self, batch, return_logit=False):
+        loss = torch.Tensor([0.0]).to(list(batch.values())[0].device )
         if self.final_hidden_state:
             logits, \
                 token_types_attend_to, \
@@ -68,12 +69,17 @@ class VelocityModel(nn.Module):
             logits = pooling_op(logits, dim=1) 
         else:
             output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
-            logit_output = torch.stack([output[otype] for otype in self.output_types], dim=0)
-            logits = torch.mean(logit_output, dim=0)
+            logit_output = [output[otype] for otype in self.output_types]
+            for ida,logit_a in enumerate(logit_output):
+                for idb in range(ida+1,len(logit_output)):
+                    logit_b = logit_output[idb] 
+                    loss += self.loss(logit_a, logit_b)
+            logits = torch.mean(torch.stack(logit_output, dim=0), dim=0)
         logits = self.decoder(logits)
         target_mask = batch['velocity'] !=0
         targets = batch['velocity'][target_mask]
-        loss, metric = self.loss(logits[target_mask], targets), {k:metric(logits[target_mask].flatten(), targets.flatten()) for k,metric in self.metrics.items()}
+        target_loss, metric = self.loss(logits[target_mask], targets), {k:metric(logits[target_mask].flatten(), targets.flatten()) for k,metric in self.metrics.items()}
+        loss += target_loss
         if return_logit:
             return loss, metric, logits
         else:

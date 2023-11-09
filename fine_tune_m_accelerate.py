@@ -32,10 +32,10 @@ config = CN()
 #config.model_dir = 'training_output_02_39_30_10_2023' #Big one
 #config.model_dir = 'training_output_23_45_06_11_2023'
 config.model_dir = "training_output_01_30_07_11_2023"
-#config.fit_indices = [ 286, 1037, 1519, 1752]
-config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
-                        1410,1519,1524,1751,1752,1753,1754,1756,
-                        1758,1760,1767,1779,1781,1783,1784,1791,]
+config.fit_indices = [ 286, 1037, 1519, 1752]
+#config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
+#                        1410,1519,1524,1751,1752,1753,1754,1756,
+#                        1758,1760,1767,1779,1781,1783,1784,1791,]
 config.norm = [0.2,0.0]
 config.decoder_num_layers = 0
 config.decoder_hidden_size = 1024
