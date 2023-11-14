@@ -6,17 +6,23 @@ from typing import Optional
 
 
 class BioZorroCollator:
-    def __init__(self, pad_token=0, pad_len=2048):
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False):
         self.pad_token = pad_token
         self.pad_len=pad_len
+        self.attn_mask = attn_mask
 
     def __call__(self, data): #(2)
         collated_data = {k: list() for k in data[0].keys()}
+        if self.attn_mask:
+            for k in collated_data.keys():
+                collated_data[k + '_mask'] = list()
         for d in data:
             for k,v in d.items():
                 length = v.shape[-1]
                 padded_v = pad(v, (0,self.pad_len-length), mode='constant', value=self.pad_token)
                 collated_data[k].append(padded_v)
+                if self.attn_mask:
+                    collated_data[k+'_mask'].append(padded_v != self.pad_token).dtype(torch.bool)
         for k,v in collated_data.items():
             collated_data[k]=torch.stack(v)
         return collated_data
