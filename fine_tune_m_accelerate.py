@@ -31,7 +31,7 @@ from accelerate import DistributedDataParallelKwargs
 config = CN()
 #config.model_dir = 'training_output_02_39_30_10_2023' #Big one
 #config.model_dir = 'training_output_23_45_06_11_2023'
-config.model_dir = "training_output_01_30_07_11_2023"
+config.model_dir = "training_outputs/training_output_01_30_07_11_2023"
 config.fit_indices = [ 286, 1037, 1519, 1752]
 #config.fit_indices = [209,265,286,347,369,503,749,1037,1047,
 #                        1410,1519,1524,1751,1752,1753,1754,1756,
@@ -48,21 +48,22 @@ config.layers_to_unfreeze = [
         'attn_pool.to_out.weight'
             ]
 config.load_checkpoint=False
-config.epochs = 4
-config.batch_size = 8
+config.epochs = 8
+config.batch_size = 12
 config.vocab_size = 36602
 config.num_warmup_steps = 3000
 config.lr_scheduler_type = "cosine"
 config.lr = 1e-4
 config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-config.dataset = "/efs-private/single_cell_data/out_veloc_data_unfiltered"
+config.dataset = "/efs-private/single_cell_data/data/final_processed_outputs/out_veloc_data_unfiltered"
 config.gene_indices = []
 config.ds_frac = 1 
 config.ds_seed = 42
 config.model = 3
-config.output_type = ["fusion", "fusion_floom_spliced", "fusion_floom_unspliced", "fusion_floom_expression"]
+config.output_type = ["fusion_output"]
 config.find_unused_parameters = False
 config.pad_length = 1024
+config.dropout = 0.4
 
 ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=config.find_unused_parameters)
 accelerator = Accelerator(log_with="wandb", kwargs_handlers=[ddp_kwargs])
@@ -160,7 +161,9 @@ print(model_config)
 backbone_hidden_size = model_config['dim'] #config.pad_length*3+model_config['num_fusion_tokens']
 model = VelocityModel(model, decoder_hidden_size=config.decoder_hidden_size, decoder_num_layers=config.decoder_num_layers,
                         final_hidden_state=config.final_hidden_state,layers_to_unfreeze=config.layers_to_unfreeze,
-                        backbone_hidden_size = backbone_hidden_size, output_types=config.output_type, 
+                        backbone_hidden_size = backbone_hidden_size, 
+                        dropout = config.dropout,
+                        output_types=config.output_type, 
                         output_size = output_size)
 model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
      model, optimizer, train_dl, eval_dl, lr_scheduler

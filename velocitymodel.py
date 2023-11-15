@@ -25,7 +25,7 @@ def logit_mean(pred,target):
 
 ## Start model training and defining the training loop
 class VelocityModel(nn.Module):
-    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, final_hidden_state=False, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None, output_types=["fusion","global_output"]):
+    def __init__(self, backbone_model, output_size, backbone_hidden_size, decoder_hidden_size = 256, final_hidden_state=False, layers_to_unfreeze=None,decoder_num_layers=3, dropout=0.1, tokens_to_fit=None, output_types=["fusion","global_output"], target_loss_scale = 0.1):
         super().__init__()
         if layers_to_unfreeze != "all":
             for name,param in backbone_model.named_parameters():
@@ -34,6 +34,7 @@ class VelocityModel(nn.Module):
                     param.requires_grad = True
         self.backbone_model = backbone_model
         self.final_hidden_state = final_hidden_state
+        self.target_loss_scale = target_loss_scale
         self.dropout = nn.Dropout(dropout)
         if decoder_num_layers == 0:
             decoder_hidden_size = output_size
@@ -65,8 +66,9 @@ class VelocityModel(nn.Module):
                 padding = self.backbone_model(**{k: v for k, v in batch.items() if 'velocity' not in k},
                                           return_final_hidden_state=True, no_loss=True)
             # TODO This needs to be pooled somehow, it's heads,tokens,embdim large
-            pooling_op = torch.mean
-            logits = pooling_op(logits, dim=1) 
+            if logits.dim > 2:
+                pooling_op = torch.mean
+                logits = pooling_op(logits, dim=1) 
         else:
             output = self.backbone_model(**{k:v for k,v in batch.items() if 'velocity' not in k}, no_loss=True)
             logit_output = [output[otype] for otype in self.output_types]
@@ -79,9 +81,9 @@ class VelocityModel(nn.Module):
         target_mask = batch['velocity'] !=0
         targets = batch['velocity'][target_mask]
         target_loss, metric = self.loss(logits[target_mask], targets), {k:metric(logits[target_mask].flatten(), targets.flatten()) for k,metric in self.metrics.items()}
-        loss += target_loss
+        loss += self.target_loss_scale * target_loss
         if return_logit:
-            return loss, metric, logits
+            return loss, metric, logits, output
         else:
             return loss, metric
 

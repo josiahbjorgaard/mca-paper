@@ -29,3 +29,8 @@ def setup_data(dataset_path, split = 0.1, ds_frac=1.0, ds_seed=42, model = 3):
     #Do a train test split
     dataset = dataset.train_test_split(split, seed=ds_seed)
     return dataset
+
+def create_attn_masks(sample, columns=['expression_index','spliced_index','unspliced_index'], token=0):
+    for column in columns:
+        sample[column+'_mask'] = sample[column] == token
+    return sample
