@@ -66,7 +66,7 @@ datasets = setup_data(config.dataset,
                       ds_seed=config.ds_seed)
 
 # BioZorro Collator
-default_data_collator = BioZorroCollator(pad_len=config.pad_len, pad_token=0)
+default_data_collator = BioZorroCollator(pad_len=config.pad_len, pad_token=0, attn_mask=True)
 model_config = get_model_config(config)
 model = BioZorro(**model_config)
 
