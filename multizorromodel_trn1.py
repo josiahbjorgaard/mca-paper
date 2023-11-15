@@ -108,16 +108,11 @@ class FeedForward(nn.Module):
         inner_dim = int(dim * mult * 2 / 3)
     
         self.feedforward = nn.Sequential(
-            #LayerNorm(dim),
             nn.Linear(dim, inner_dim * 2, bias=False),
-            #nn.Linear(dim, inner_dim, bias=False),
-            #nn.ReLU(),
             GEGLU(),
             nn.Linear(inner_dim, dim, bias=False)
             )
     def forward(self, batch):
-        print(f"{batch.shape = }")
-        print(f"{self.feedforward = }")
         return self.feedforward(batch)
 
 
@@ -142,7 +137,6 @@ class PyTorchAttention(nn.Module):
                 device=None, 
                 dtype=None
                 )
-        print(f"{self.attention = }")
     def forward(self,q, kv, key_padding_mask=None, attn_mask=None):
         attn_output, attn_output_weights = self.attention(
                 query = q,
@@ -194,10 +188,8 @@ class Attention(nn.Module):
         
         if exists(attn_mask):
             sim = sim.masked_fill(~attn_mask, -torch.finfo(sim.dtype).max)
-        print(f"{sim.shape = }")
         if exists(padding_mask):
-            padding_mask = ~repeat(padding_mask, "b i -> b h i j", h=self.heads, j=sim.shape[-2])
-            print(f"{padding_mask.shape = }")
+            padding_mask = ~repeat(padding_mask, "b i -> b h j i", h=self.heads, j=sim.shape[-2])
             sim = sim.masked_fill(padding_mask, -torch.finfo(sim.dtype).max)
             
         attn = sim.softmax(dim=-1)
@@ -212,19 +204,16 @@ class Attention(nn.Module):
 class BioZorroLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
-        self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
-        #self.attn = PyTorchAttention(dim=dim, dim_head=dim_head, heads=heads)
+        #self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn = PyTorchAttention(dim=dim, dim_head=dim_head, heads=heads)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
                  
     def forward(self, batch, zorro_mask=None, padding_mask=None):
-        print(f"{batch.shape = }")
-        print(f"{zorro_mask.shape = }")
-        print(f"{padding_mask.shape = }")
-        batch = self.attn(batch, attn_mask=zorro_mask, padding_mask = padding_mask) + batch
-        #batch = self.attn(batch, batch, attn_mask=zorro_mask, key_padding_mask=padding_mask)
-        print(f"After attention: {batch.shape = }")
+        #batch = self.attn(batch, attn_mask=zorro_mask, padding_mask = padding_mask) + batch
+        batch = self.attn(batch, batch, attn_mask=zorro_mask, key_padding_mask=padding_mask) + batch
+        #print(f"After attention: {batch.shape = }")
         batch = self.ff(batch) + batch
-        print(f"After FF: {batch.shape = }")
+        #print(f"After FF: {batch.shape = }")
         return batch
 
 @dataclass
@@ -467,7 +456,7 @@ class BioZorro(nn.Module):
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         zorro_mask = token_types_attend_from == token_types_attend_to
         zorro_mask = zorro_mask | (token_types_attend_from == TokenTypes.FUSION.value)
-        print(f"{fusion_tokens.shape = }")        
+        #print(f"{fusion_tokens.shape = }")        
         # Padding tokens mask
         # Using the index data, but should use an input attention mask properly
         # And a custom Padding token via the Dataloader/collator
@@ -477,7 +466,7 @@ class BioZorro(nn.Module):
                                 device=fusion_tokens.device
                                 )
         #fusion_mask = fusion_mask.to(torch.bool)
-        print(f"{fusion_mask.shape = }")
+        #print(f"{fusion_mask.shape = }")
         padding, ps = pack((
                 spliced_mask,
                 unspliced_mask,
@@ -485,8 +474,8 @@ class BioZorro(nn.Module):
                 fusion_mask),    
                 'b *')
         padding = padding.to(torch.bool)
-        print(f"The padding tokens:")
-        print(f"{padding.shape = }")
+        #print(f"The padding tokens:")
+        #print(f"{padding.shape = }")
         torch.save(padding.detach().cpu(), 'padding.pt')
         #padding_mask = padding #padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
         zorro_mask = repeat(zorro_mask, 'j i -> i j') #'j i -> b i j', b=batch)
@@ -524,18 +513,18 @@ class BioZorro(nn.Module):
         #Padding mask to pool mask
         #padding_mask = repeat(padding, 'b j -> b i j', i=pool_mask.shape[0])
         pool_mask = repeat(pool_mask, 'i j -> b i j', b=batch)
-        print(f"{pool_mask.shape = }")
+        #print(f"{pool_mask.shape = }")
         #print(f"{padding_mask.shape = }")
         #pool_mask = pool_mask * padding_mask
         #pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
         #if xm.is_master_ordinal(local=False):
-        if True:
-            torch.save(padding.detach().cpu(), 'padding.pt')
-            torch.save(pool_mask.detach().cpu(), 'zorro_mask.pt')
-            torch.save(tokens.detach().cpu(), 'tokens.pt')
-            torch.save(return_tokens.cpu(), 'return_tokens.pt')
+        #if True:
+        #    torch.save(padding.detach().cpu(), 'padding.pt')
+        #    torch.save(pool_mask.detach().cpu(), 'zorro_mask.pt')
+        #    torch.save(tokens.detach().cpu(), 'tokens.pt')
+        #    torch.save(return_tokens.cpu(), 'return_tokens.pt')
             
-        pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask, padding_mask = None) + return_tokens
+        pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask, padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, no_loss)
         return loss
 
