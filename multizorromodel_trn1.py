@@ -117,7 +117,7 @@ class FeedForward(nn.Module):
         return self.feedforward(batch)
 
 
-def PyTorchAttention(nn.Module):
+class PyTorchAttention(nn.Module):
     def __init__(
             self,
             dim,
@@ -138,10 +138,14 @@ def PyTorchAttention(nn.Module):
                 device=None, 
                 dtype=None
                 )
-    def forward(q, k, v, key_padding_mask=None, attn_mask=None):
-        tokens = self.attention(
-                query = q
-                key = 
+    def forward(q, kv, key_padding_mask=None, attn_mask=None):
+        return self.attention(
+                query = q,
+                key = kv,
+                value = kv,
+                key_padding_mask = key_padding_mask,
+                attn_mask = attn_mask
+        )
 
 # attention
 
@@ -194,11 +198,13 @@ class Attention(nn.Module):
 class BioZorroLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
-        self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        #self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn = PyTorchAttention(dim=dim, dim_head=dim_head, heads=heads)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
                  
-    def forward(self, batch, zorro_mask=None):
-        batch = self.attn(batch, attn_mask=zorro_mask) + batch
+    def forward(self, batch, zorro_mask=None, padding_mask=None):
+        #batch = self.attn(batch, attn_mask=zorro_mask) + batch
+        batch = self.attn(batch, attn_mask=zorro_mask, key_padding_mask=padding_mask)
         batch = self.ff(batch) + batch
         return batch
 
@@ -454,16 +460,17 @@ class BioZorro(nn.Module):
                     dtype=torch.bool,
                     device=fusion_tokens.device)),  #No mask on fusion tokens
                 'b *')
-        padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
+
+        padding_mask = padding #padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
         zorro_mask = repeat(zorro_mask, 'j i -> b i j', b=batch)
         #print(f"{padding_mask.shape = }")
         #print(f"{zorro_mask.shape = }")
-        zorro_mask = zorro_mask * padding_mask
-        zorro_mask = repeat(zorro_mask, 'b i j -> b h i j', h=self.heads)
+        #zorro_mask = zorro_mask * padding_mask
+        #zorro_mask = repeat(zorro_mask, 'b i j -> b h i j', h=self.heads)
         # attend and feedforward
         
         for layer in self.layers:
-            tokens = layer(tokens, zorro_mask)
+            tokens = layer(tokens, zorro_mask, padding_mask)
         tokens = self.norm(tokens)
 
         
