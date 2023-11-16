@@ -360,6 +360,7 @@ class BioZorro(nn.Module):
             #spliced_input_dim,
             #unspliced_input_dim,
             #expression_input_dim,
+            ntokens=1024,
             dim_head=64,
             heads=8,
             ff_mult=4,
@@ -369,15 +370,19 @@ class BioZorro(nn.Module):
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
+            isolate_fusion_tokens=False,
             loss=BioZorroPretrainingLoss()
     ):
         super().__init__()
+       
+        self.device = xm.xla_device()
+
         self.loss = loss
 
         self.max_return_tokens = len(return_token_types)
 
         self.return_token_types = return_token_types
-        return_token_types_tensor = torch.tensor(list(map(lambda t: t.value, return_token_types)))
+        return_token_types_tensor = torch.tensor(list(map(lambda t: t.value, return_token_types)), device=self.device)
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
@@ -404,8 +409,7 @@ class BioZorro(nn.Module):
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
         self.fusion_mask = torch.ones(
                 num_fusion_tokens,
-                dim,
-                device=fusion_tokens.device
+                device=self.device
             ).to(torch.bool)
 
         # transformer
@@ -416,16 +420,16 @@ class BioZorro(nn.Module):
 
         self.norm = LayerNorm(dim)
 
-        token_types = self.create_token_types_tensor(dim, fusion_tokens.device)
+        token_types = self.create_token_types_tensor(ntokens, num_fusion_tokens, self.device)
         self.zorro_mask = self.create_zorro_mask(token_types)
-        self.pooling_mask = self.create_pooling_mask(token_types, return_token_types_tensor)
+        self.pool_mask = self.create_pooling_mask(token_types, return_token_types_tensor)
 
-    def create_token_types_tensor(self, dim, device):
+    def create_token_types_tensor(self, ntokens, num_fusion_tokens, device):
         return torch.tensor(list((
-                *((TokenTypes.SPLICED.value,) * dim),
-                *((TokenTypes.UNSPLICED.value,) * dim),
-                *((TokenTypes.EXPRESSION.value,) * dim),
-                *((TokenTypes.FUSION.value,) * dim),
+                *((TokenTypes.SPLICED.value,) * ntokens),
+                *((TokenTypes.UNSPLICED.value,) * ntokens),
+                *((TokenTypes.EXPRESSION.value,) * ntokens),
+                *((TokenTypes.FUSION.value,) * num_fusion_tokens),
             )), device=device, dtype=torch.long)
 
     def create_zorro_mask(self, token_types):
@@ -458,7 +462,6 @@ class BioZorro(nn.Module):
             expression_mask: Optional[Tensor] = None,
             return_token_indices: Optional[Tuple[int]] = None,
             no_loss = False,
-            isolate_fusion_tokens=False,
             return_final_hidden_state = False #
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
@@ -467,7 +470,8 @@ class BioZorro(nn.Module):
         unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
         expression_tokens = self.expression_embedding(expression_index, expression_data)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
-        
+        fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch)
+
         spliced_tokens, \
         unspliced_tokens, \
         expression_tokens, \
@@ -481,12 +485,14 @@ class BioZorro(nn.Module):
             fusion_tokens
         ), 'b * d')
 
-
+        print(f"{spliced_mask.shape = }")
+        print(f"{fusion_mask.shape = }")
+        assert fusion_mask.dtype == torch.bool
         padding, ps = pack((
                 spliced_mask,
                 unspliced_mask,
                 expression_mask,
-                self.fusion_mask),
+                fusion_mask),
                 'b *')
         assert padding.dtype == torch.bool
 
