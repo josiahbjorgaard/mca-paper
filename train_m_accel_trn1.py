@@ -88,7 +88,9 @@ if __name__ == '__main__':
         collate_fn=default_data_collator,
         batch_size=config.batch_size,
         sampler=train_sampler,
-        shuffle=False if train_sampler else True)
+        shuffle=False if train_sampler else True,
+        num_workers=16,
+        prefetch_factor=128)
 
     ## Loading a subset of the data in the different Neuron Cores provided as input
     train_device_loader = pl.MpDeviceLoader(train_dl, device)

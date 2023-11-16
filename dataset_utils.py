@@ -8,7 +8,10 @@ def setup_data(dataset_path, split = 0.1, ds_frac=1.0, ds_seed=42, model = 3):
     if ds_frac < 1.0:
         dataset = dataset.select(list(range(0,int(len(dataset)*ds_frac))))
     if model == 3:
-        keep = ['expression_index','expression_counts','spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
+        if 'spliced_counts' in dataset.features.keys():    
+            keep = ['expression_index','expression_counts','spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
+        else:
+            keep = ['expression_index','expression_data','spliced_index', 'unspliced_index', 'spliced_data', 'unspliced_data']
     elif model == 2:
         keep = ['spliced_index', 'unspliced_index', 'spliced_counts', 'unspliced_counts']
     elif model == 1:
