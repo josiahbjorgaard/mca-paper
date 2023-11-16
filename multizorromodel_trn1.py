@@ -402,15 +402,47 @@ class BioZorro(nn.Module):
         )
         self.num_fusion_tokens = num_fusion_tokens
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
+        self.fusion_mask = torch.ones(
+                num_fusion_tokens,
+                dim,
+                device=fusion_tokens.device
+            ).to(torch.bool)
 
         # transformer
-
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult, use_pytorch_attn)
+            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult, use_pytorch_attn))
 
         self.norm = LayerNorm(dim)
+
+        token_types = self.create_token_types_tensor(dim, fusion_tokens.device)
+        self.zorro_mask = self.create_zorro_mask(token_types)
+        self.pooling_mask = self.create_pooling_mask(token_types, return_token_types_tensor)
+
+    def create_token_types_tensor(self, dim, device):
+        return torch.tensor(list((
+                *((TokenTypes.SPLICED.value,) * dim),
+                *((TokenTypes.UNSPLICED.value,) * dim),
+                *((TokenTypes.EXPRESSION.value,) * dim),
+                *((TokenTypes.FUSION.value,) * dim),
+            )), device=device, dtype=torch.long)
+
+    def create_zorro_mask(self, token_types):
+        token_types_attend_from = rearrange(token_types, 'i -> i 1')
+        token_types_attend_to = rearrange(token_types, 'j -> 1 j')
+        zorro_mask = token_types_attend_from == token_types_attend_to
+        zorro_mask = zorro_mask | (token_types_attend_from == TokenTypes.FUSION.value)
+        zorro_mask = repeat(zorro_mask, 'j i -> i j')  # 'j i -> b i j', b=batch)
+        return zorro_mask
+
+    def create_pooling_mask(self, token_types, return_token_types_tensor):
+        token_types_attend_to = rearrange(token_types, 'j -> 1 j')
+        pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
+        # global queries can attend to all tokens
+        pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
+            token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
+        return pool_mask
 
     def forward(
             self,
@@ -424,9 +456,9 @@ class BioZorro(nn.Module):
             spliced_mask: Optional[Tensor] = None,
             unspliced_mask: Optional[Tensor] = None,
             expression_mask: Optional[Tensor] = None,
-            return_token_indices: Optional[Tuple[int]] = None,
+            #return_token_indices: Optional[Tuple[int]] = None,
             no_loss = False,
-            return_final_hidden_state = False #
+            #return_final_hidden_state = False #
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
         
@@ -447,57 +479,33 @@ class BioZorro(nn.Module):
             expression_tokens,
             fusion_tokens
         ), 'b * d')
-    
-        token_types = torch.tensor(list((
-            *((TokenTypes.SPLICED.value,) * spliced_tokens.shape[-2]),
-            *((TokenTypes.UNSPLICED.value,) * unspliced_tokens.shape[-2]),
-            *((TokenTypes.EXPRESSION.value,) * expression_tokens.shape[-2]),
-            *((TokenTypes.FUSION.value,) * fusion_tokens.shape[-2]),
-        )), device=device, dtype=torch.long)
 
-        token_types_attend_from = rearrange(token_types, 'i -> i 1')
-        token_types_attend_to = rearrange(token_types, 'j -> 1 j')
-        zorro_mask = token_types_attend_from == token_types_attend_to
-        zorro_mask = zorro_mask | (token_types_attend_from == TokenTypes.FUSION.value)
-        # Padding tokens mask
-        # Using the index data, but should use an input attention mask properly
-        # And a custom Padding token via the Dataloader/collator
-        fusion_mask = torch.ones(
-                                fusion_tokens.shape[0],
-                                fusion_tokens.shape[1],
-                                device=fusion_tokens.device
-                                )
+
         padding, ps = pack((
                 spliced_mask,
                 unspliced_mask,
                 expression_mask,
-                fusion_mask),    
+                self.fusion_mask),
                 'b *')
-        padding = padding.to(torch.bool)
-        torch.save(padding.detach().cpu(), 'padding.pt')
-        zorro_mask = repeat(zorro_mask, 'j i -> i j') #'j i -> b i j', b=batch)
+        assert padding.dtype == torch.bool
+
         # attend and feedforward
         for layer in self.layers:
-            tokens = layer(tokens, zorro_mask, padding)
+            tokens = layer(tokens, self.zorro_mask, padding)
         tokens = self.norm(tokens)
-        return_tokens = self.return_tokens
-        return_token_types_tensor = self.return_token_types_tensor
+        """ #TODO Find a way to do this with LOOM
         if exists(return_token_indices):
             assert len(set(return_token_indices)) == len(return_token_indices), 'all indices must be unique'
             assert all([indice < self.max_return_tokens for indice in
                         return_token_indices]), 'indices must range from 0 to max_num_return_tokens - 1'
 
             return_token_indices = torch.tensor(return_token_indices, dtype=torch.long, device=device)
-
             return_token_types_tensor = return_token_types_tensor[return_token_indices]
             return_tokens = return_tokens[return_token_indices]
-        return_tokens = repeat(return_tokens, 'n d -> b n d', b=batch)
-        pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
-        # global queries can attend to all tokens
-        pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
-            token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
+        """
+        return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch)
         #Padding mask to pool mask
-        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=pool_mask, key_padding_mask = padding) + return_tokens
+        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, no_loss)
         return loss
 
