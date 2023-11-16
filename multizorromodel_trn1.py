@@ -456,9 +456,10 @@ class BioZorro(nn.Module):
             spliced_mask: Optional[Tensor] = None,
             unspliced_mask: Optional[Tensor] = None,
             expression_mask: Optional[Tensor] = None,
-            #return_token_indices: Optional[Tuple[int]] = None,
+            return_token_indices: Optional[Tuple[int]] = None,
             no_loss = False,
-            #return_final_hidden_state = False #
+            isolate_fusion_tokens=False,
+            return_final_hidden_state = False #
     ):
         batch, device = spliced_data.shape[0], spliced_data.device
         
