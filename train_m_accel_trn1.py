@@ -69,7 +69,8 @@ if __name__ == '__main__':
     if xm.is_master_ordinal(local=False):
         wandb.init(
             entity="josiahbjorgaard",
-            project="Multimodal",
+            project="Multimodal-Trn1",
+
         )
     
     ## Create a subsed of data sampler, for parallelizing the training across multiple cores

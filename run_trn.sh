@@ -8,7 +8,7 @@ sudo sysctl -w net.ipv4.ip_local_reserved_ports=44000,48620
 sudo sysctl -w kernel.threads-max=10000000
 ulimit -c unlimited
 
-NUM_NEURONCORES=2 #32
+NUM_NEURONCORES=32
 DISTRIBUTED_ARGS="--nproc_per_node $NUM_NEURONCORES"
 
 LD_PRELOAD="/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4"
@@ -44,7 +44,8 @@ if [[ "BF16" == $TRAINING_PRECISION ]]; then
     echo "USING BF16 ONLY"
     export XLA_USE_BF16=1
     #export NEURON_CC_FLAGS="--retry_failed_compilation --distribution-strategy FSDP --model-type transformer -O1"
-    export NEURON_CC_FLAGS="--retry_failed_compilation -O1"
+    #export NEURON_CC_FLAGS="--retry_failed_compilation -O1"
+    export NEURON_CC_FLAGS=""
 else
 	exit 1
 #elif [[ "MIXED" == $TRAINING_PRECISION ]]; then

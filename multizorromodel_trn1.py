@@ -381,7 +381,8 @@ class BioZorro(nn.Module):
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
-        self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        #self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn_pool = PyTorchAttention(dim=dim, dim_head=dim_head, heads=heads)
         #End TODO
 
         self.heads = heads # Added
@@ -456,7 +457,6 @@ class BioZorro(nn.Module):
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         zorro_mask = token_types_attend_from == token_types_attend_to
         zorro_mask = zorro_mask | (token_types_attend_from == TokenTypes.FUSION.value)
-        #print(f"{fusion_tokens.shape = }")        
         # Padding tokens mask
         # Using the index data, but should use an input attention mask properly
         # And a custom Padding token via the Dataloader/collator
@@ -465,8 +465,6 @@ class BioZorro(nn.Module):
                                 fusion_tokens.shape[1],
                                 device=fusion_tokens.device
                                 )
-        #fusion_mask = fusion_mask.to(torch.bool)
-        #print(f"{fusion_mask.shape = }")
         padding, ps = pack((
                 spliced_mask,
                 unspliced_mask,
@@ -474,26 +472,12 @@ class BioZorro(nn.Module):
                 fusion_mask),    
                 'b *')
         padding = padding.to(torch.bool)
-        #print(f"The padding tokens:")
-        #print(f"{padding.shape = }")
         torch.save(padding.detach().cpu(), 'padding.pt')
-        #padding_mask = padding #padding_mask = repeat(padding, 'b j -> b i j', i=padding.shape[-1])
         zorro_mask = repeat(zorro_mask, 'j i -> i j') #'j i -> b i j', b=batch)
-        #print(f"{padding_mask.shape = }")
-        #print(f"{zorro_mask.shape = }")
-        #zorro_mask = zorro_mask * padding_mask
-        #zorro_mask = repeat(zorro_mask, 'b i j -> b h i j', h=self.heads)
         # attend and feedforward
         for layer in self.layers:
             tokens = layer(tokens, zorro_mask, padding)
         tokens = self.norm(tokens)
-
-        
-        #For fine tuning just want the last hidden state here
-        #if return_final_hidden_state:
-        #    return tokens, token_types_attend_to, padding
-
-        # final attention pooling - each modality pool token can only attend to its own tokens
         return_tokens = self.return_tokens
         return_token_types_tensor = self.return_token_types_tensor
         if exists(return_token_indices):
@@ -511,20 +495,9 @@ class BioZorro(nn.Module):
         pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
             token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
         #Padding mask to pool mask
-        #padding_mask = repeat(padding, 'b j -> b i j', i=pool_mask.shape[0])
-        pool_mask = repeat(pool_mask, 'i j -> b i j', b=batch)
-        #print(f"{pool_mask.shape = }")
-        #print(f"{padding_mask.shape = }")
-        #pool_mask = pool_mask * padding_mask
-        #pool_mask = repeat(pool_mask, 'b i j -> b h i j', h=self.heads)
-        #if xm.is_master_ordinal(local=False):
-        #if True:
-        #    torch.save(padding.detach().cpu(), 'padding.pt')
-        #    torch.save(pool_mask.detach().cpu(), 'zorro_mask.pt')
-        #    torch.save(tokens.detach().cpu(), 'tokens.pt')
-        #    torch.save(return_tokens.cpu(), 'return_tokens.pt')
-            
-        pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask, padding_mask = padding) + return_tokens
+        #pool_mask = repeat(pool_mask, 'i j -> b i j', b=batch)
+        #pooled_tokens = self.attn_pool(return_tokens, context=tokens, attn_mask=pool_mask, padding_mask = padding) + return_tokens
+        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, no_loss)
         return loss
 
