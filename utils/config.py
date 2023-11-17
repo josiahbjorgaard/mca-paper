@@ -19,7 +19,6 @@ def get_cfg_defaults_train():
     config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
     config.hidden_size = 512
     config.layers = 10
-    config.dim_head = 64 #64  # heads*dim_head = intermeidate size?
     config.heads = 8  # num heads
     config.ff_mult = 4  # Feed forward multiplier
     config.num_fusion_tokens = 256
@@ -64,12 +63,10 @@ def get_model_config(config):
     model_config = {
         "dim": config.hidden_size,  # hidden size
         "depth": config.layers,  # layers
-        "dim_head": config.dim_head,  # dim_head * heads = intermediate size
         "heads": config.heads,  # num heads
         "ff_mult": config.ff_mult,  # Feed forward multiplier
         "num_fusion_tokens": config.num_fusion_tokens,
         "vocab_size": config.vocab_size,
-        "isolate_fusion_tokens": config.isolate_fusion_tokens
     }
     return model_config
 

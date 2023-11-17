@@ -22,7 +22,7 @@ import torch_xla.core.xla_model as xm
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-config_file = 'config.yaml'
+config_file = 'config/config.yaml'
 config = training_config(config_file)
 
 ########

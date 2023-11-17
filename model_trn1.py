@@ -8,8 +8,8 @@ from torch import nn, einsum, Tensor
 
 from einops import rearrange, repeat, pack, unpack
 
-from torchmultimodal.utils.common import ModelOutput
-from .utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature, \
+from utils.common import ModelOutput
+from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
 
 from beartype.typing import Tuple, Optional, Union
 
@@ -93,9 +93,9 @@ class PyTorchAttention(nn.Module):
 
 # attention
 class BioZorroLayer(nn.Module):
-    def __init__(self, dim, dim_head, heads, ff_mult):
+    def __init__(self, dim, heads, ff_mult):
         super().__init__()
-        self.attn = PyTorchAttention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn = PyTorchAttention(dim=dim, heads=heads)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
                  
     def forward(self, batch, zorro_mask=None, padding_mask=None):
@@ -175,12 +175,10 @@ class BioZorro(nn.Module):
             dim,
             depth,
             ntokens=1024,
-            dim_head=64,
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
             vocab_size=36602,
-            use_pytorch_attn=True,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
@@ -199,7 +197,7 @@ class BioZorro(nn.Module):
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
-        self.attn_pool = PyTorchAttention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn_pool = PyTorchAttention(dim=dim, heads=heads)
 
 
         self.heads = heads # Added
@@ -226,7 +224,7 @@ class BioZorro(nn.Module):
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult, use_pytorch_attn))
+            self.layers.append(BioZorroLayer(dim, heads, ff_mult))
 
         self.norm = LayerNorm(dim)
 
