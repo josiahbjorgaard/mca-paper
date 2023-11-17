@@ -146,8 +146,6 @@ class PyTorchAttention(nn.Module):
                 attn_mask = attn_mask,
                 need_weights=False
         )
-        print(f"{attn_output.shape = }")
-        print(f"{attn_output.dtype = }")
         #attn_output =rearrange(attn_output, 'b i j -> b j i')
         return attn_output
 
