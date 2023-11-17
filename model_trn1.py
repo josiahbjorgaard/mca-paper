@@ -8,8 +8,8 @@ from torch import nn, einsum, Tensor
 
 from einops import rearrange, repeat, pack, unpack
 
-from utils.common import ModelOutput
-from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
+from torchmultimodal.utils.common import ModelOutput
+from .utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature, \
 
 from beartype.typing import Tuple, Optional, Union
 
@@ -59,43 +59,59 @@ class FeedForward(nn.Module):
         return self.feedforward(batch)
 
 
-class PyTorchAttention(nn.Module):
+class Attention(nn.Module):
     def __init__(
             self,
             dim,
+            dim_head=64,
             heads=8
-            ):
+    ):
         super().__init__()
-        self.attention = nn.MultiheadAttention(
-                embed_dim = dim, 
-                num_heads = heads, 
-                dropout=0.0, 
-                bias=False, 
-                add_bias_kv=False, 
-                add_zero_attn=False, 
-                kdim=None, 
-                vdim=None, 
-                batch_first=True, 
-                device=xm.xla_device(), 
-                #dtype=None
-                )
-    def forward(self,q, kv, key_padding_mask=None, attn_mask=None):
-        attn_output, attn_output_weights = self.attention(
-                query = q,
-                key = kv,
-                value = kv,
-                key_padding_mask = key_padding_mask,
-                attn_mask = attn_mask,
-                need_weights=False
-        )
-        #attn_output =rearrange(attn_output, 'b i j -> b j i')
-        return attn_output
+        self.scale = dim_head ** -0.5
+        self.heads = heads
+        inner_dim = dim_head * heads
+
+        self.norm = LayerNorm(dim)
+
+        self.to_q = nn.Linear(dim, inner_dim, bias=False)
+        self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
+        self.to_out = nn.Linear(inner_dim, dim, bias=False)
+
+    def forward(
+            self,
+            x,
+            context=None,
+            attn_mask=None,
+            key_padding_mask=None,
+    ):
+        x = self.norm(x)
+        kv_x = default(context, x)
+
+        q, k, v = (self.to_q(x), *self.to_kv(kv_x).chunk(2, dim=-1))
+
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), (q, k, v))
+
+        q = q * self.scale
+        sim = einsum('b h i d, b h j d -> b h i j', q, k)
+
+        if exists(attn_mask):
+            sim = sim.masked_fill(attn_mask, -torch.finfo(sim.dtype).max)
+        if exists(key_padding_mask):
+            key_padding_mask = repeat(key_padding_mask, "b i -> b h j i", h=self.heads, j=sim.shape[-2])
+            sim = sim.masked_fill(key_padding_mask, -torch.finfo(sim.dtype).max)
+
+        attn = sim.softmax(dim=-1)
+
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
 
 # attention
 class BioZorroLayer(nn.Module):
-    def __init__(self, dim, heads, ff_mult):
+    def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
-        self.attn = PyTorchAttention(dim=dim, heads=heads)
+        self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
                  
     def forward(self, batch, zorro_mask=None, padding_mask=None):
@@ -175,10 +191,12 @@ class BioZorro(nn.Module):
             dim,
             depth,
             ntokens=1024,
+            dim_head=64,
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
-            vocab_size=36602,
+            vocab_size=24000,
+            use_pytorch_attn=True,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
@@ -197,7 +215,7 @@ class BioZorro(nn.Module):
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
 
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
-        self.attn_pool = PyTorchAttention(dim=dim, heads=heads)
+        self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
 
 
         self.heads = heads # Added
@@ -224,7 +242,7 @@ class BioZorro(nn.Module):
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(BioZorroLayer(dim, heads, ff_mult))
+            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult, use_pytorch_attn))
 
         self.norm = LayerNorm(dim)
 
