@@ -1,30 +1,29 @@
 import logging
 import os
-import sys
 from time import gmtime, strftime
 from tqdm.auto import tqdm
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from accelerate import Accelerator, DistributedType
+from accelerate import Accelerator
 from accelerate.utils import set_seed
 import transformers
 from transformers import get_scheduler
 
-from multizorromodel_trn1 import BioZorro
+from model_trn1 import BioZorro
 from encoders import BioZorroCollator
-from training_utils import get_param_norm, get_grad_norm, count_parameters
-from config_utils import training_config, get_model_config
-from dataset_utils import setup_data
+from utils.training import count_parameters
+from utils.config import training_config, get_model_config
+from utils.dataset import setup_data
 import datasets
-import wandb
 
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+config_file = 'config.yaml'
+config = training_config(config_file)
 
 ########
 # XLA
@@ -54,8 +53,7 @@ if accelerator.is_local_main_process:
 else:
     datasets.utils.logging.set_verbosity_error()
     transformers.utils.logging.set_verbosity_error()
-config_file = 'config.yaml'
-config = training_config(config_file)
+
 # If passed along, set the training seed now.
 if config.seed is not None:
     set_seed(config.seed, device_specific=False)
@@ -74,22 +72,13 @@ if xm.is_master_ordinal(local=False):
     config.n_params_emb, \
     config.n_params_nonemb = count_parameters(model, print_summary=False)
 
-# Initialise your wandb run, passing wandb parameters and any config information
-##Wandb causes an exception running in distributed mode
-if xm.is_master_ordinal(local=False):
-    wandb.init(
-        entity="josiahbjorgaard",
-        config=config,
-        project="Multimodal2",
-    )
-
 datasets = setup_data(config.dataset,
                       split=config.split,
                       ds_frac=config.ds_frac,
                       ds_seed=config.ds_seed)
 
 train_dataset = datasets['train']
-print(train_dataset)
+
 ## Creating a DataLoader object for iterating over it during the training epochs
 train_dataloader = DataLoader(
                         train_dataset, shuffle=True, collate_fn=default_data_collator,
@@ -99,7 +88,6 @@ train_dataloader = DataLoader(
 
 optimizer = AdamW(model.parameters(), lr=config.lr)
 
-print(next(iter(train_dataloader)))
 # Prepare everything with our `accelerator`.
 model, optimizer, train_dataloader = accelerator.prepare(
     model, optimizer, train_dataloader
@@ -119,20 +107,10 @@ lr_scheduler = get_scheduler(
         num_training_steps=num_training_steps,
     )
 
-#if accelerator.distributed_type == DistributedType.TPU:
-#    model.tie_weights()
 
-#if xm.is_master_ordinal(local=False): #.is_main_process:
 progress_bar = tqdm(range(num_training_steps))
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
-
-if config.restart:
-    raise Exception("Checkpoint reload not implemented for trn1")
-    logger.info(f"Loading saved state from {config.restart}")
-    if config.reset_lr:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = config.reset_lr
 
 # Start model training and defining the training loop
 for epoch in range(config.epochs):
@@ -146,18 +124,7 @@ for epoch in range(config.epochs):
         lr_scheduler.step()
         optimizer.zero_grad()
         xm.mark_step()
-        #xm.add_step_closure(training_metrics_closure, (epoch, global_step, loss.detach(), optimizer.param_groups[0]['lr'],grad_norm, param_norm),run_async=False) #no data dependency with next mark_step
-
-    # Log and checkpoint
-        #if xm.is_master_ordinal(local=False):
-            #print(outputs)
-            #xm.rendezvous("Saving Checkpoint")
         progress_bar.update(world_size)
-            #wandb.log({"total_loss": loss.detach().to("cpu")})
-            #wandb.log({k: v.detach().to("cpu") for k,v in outputs.losses.items()})
-            #wandb.log({"param_norm": get_param_norm(model).to("cpu"),
-            #                "grad_norm": get_grad_norm(model).to("cpu")})
-            #wandb.log({"lr": optimizer.param_groups[0]['lr']})
 
 ## Using XLA for saving model after training for being sure only one copy of the model is saved
 os.makedirs(config.output_dir, exist_ok=True)
