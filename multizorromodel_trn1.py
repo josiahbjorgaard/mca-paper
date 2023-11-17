@@ -364,7 +364,7 @@ class BioZorro(nn.Module):
             ff_mult=4,
             num_fusion_tokens=16,
             vocab_size=36602,
-            use_pytorch_attn=True,
+            use_pytorch_attn=False, #True,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
