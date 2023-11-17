@@ -20,6 +20,7 @@ def get_cfg_defaults_train():
     config.hidden_size = 512
     config.layers = 10
     config.heads = 8  # num heads
+    config.dim_head = 64
     config.ff_mult = 4  # Feed forward multiplier
     config.num_fusion_tokens = 256
     config.dataset = "/shared/dataset3M" #"/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
@@ -32,7 +33,7 @@ def get_cfg_defaults_train():
     config.model = 3
     config.n_step_checkpoint = 20000
     config.run_eval_loop = True
-    config.vocab_size = 36602
+    config.vocab_size = 20000 #36602
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
 
@@ -64,6 +65,7 @@ def get_model_config(config):
         "dim": config.hidden_size,  # hidden size
         "depth": config.layers,  # layers
         "heads": config.heads,  # num heads
+        "dim_head": config.dim_head, # heads * dim_head = intermediate size
         "ff_mult": config.ff_mult,  # Feed forward multiplier
         "num_fusion_tokens": config.num_fusion_tokens,
         "vocab_size": config.vocab_size,

@@ -9,7 +9,7 @@ from torch import nn, einsum, Tensor
 from einops import rearrange, repeat, pack, unpack
 
 from torchmultimodal.utils.common import ModelOutput
-from .utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature, \
+from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
 
 from beartype.typing import Tuple, Optional, Union
 
@@ -24,6 +24,15 @@ class TokenTypes(Enum):
     EXPRESSION = 2
     FUSION = 3
     GLOBAL = 4
+
+def default(*args):
+    for arg in args:
+        if exists(arg):
+            return arg
+    return None
+
+def exists(val):
+    return val is not None
 
 # bias-less layernorm
 class LayerNorm(nn.Module):
@@ -196,7 +205,6 @@ class BioZorro(nn.Module):
             ff_mult=4,
             num_fusion_tokens=16,
             vocab_size=24000,
-            use_pytorch_attn=True,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
@@ -242,7 +250,7 @@ class BioZorro(nn.Module):
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult, use_pytorch_attn))
+            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult))
 
         self.norm = LayerNorm(dim)
 

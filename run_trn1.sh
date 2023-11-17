@@ -8,7 +8,7 @@ sudo sysctl -w net.ipv4.ip_local_reserved_ports=44000,48620
 sudo sysctl -w kernel.threads-max=10000000
 ulimit -c unlimited
 
-NUM_NEURONCORES=2
+NUM_NEURONCORES=16
 DISTRIBUTED_ARGS="--nproc_per_node $NUM_NEURONCORES"
 
 LD_PRELOAD="/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4"
