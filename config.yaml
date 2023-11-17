@@ -1,0 +1,17 @@
+batch_size: 2
+dataset: /shared/dataset3Mfiltered
+dim_head: 8 #64
+ds_frac: 1.0
+ds_seed: 42
+epochs: 8
+ff_mult: 4
+heads: 4
+hidden_size: 512
+layers: 4 #7
+lr: 0.0001
+lr_scheduler_type: cosine
+model: 3
+num_fusion_tokens: 64
+num_warmup_steps: 3000
+split: 0.1
+run_eval_loop: false 
