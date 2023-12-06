@@ -72,6 +72,18 @@ def get_model_config(config):
     }
     return model_config
 
+def get_model_config_new(config):
+    #### MODEL
+    model_config = {
+        "dim": config.hidden_size,  # hidden size
+        "depth": config.layers,  # layers
+        "heads": config.heads,  # num heads
+        "dim_head": config.dim_head, # heads * dim_head = intermediate size
+        "ff_mult": config.ff_mult,  # Feed forward multiplier
+        "num_fusion_tokens": config.num_fusion_tokens,
+        "modality_encoders": ""
+    }
+    return model_config
 
 def dump_configs(config, output_dir):
     os.makedirs(output_dir, exist_ok=True)

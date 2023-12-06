@@ -13,17 +13,9 @@ from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperatu
 
 from beartype.typing import Tuple, Optional, Union
 
-from encoders import BioZorroEncoder
+from encoders import encoders
 
 import torch_xla.core.xla_model as xm
-
-# constants
-class TokenTypes(Enum):
-    SPLICED = 0  # -> AUDIO
-    UNSPLICED = 1  # -> VIDEO
-    EXPRESSION = 2
-    FUSION = 3
-    GLOBAL = 4
 
 def default(*args):
     for arg in args:
@@ -117,7 +109,7 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 # attention
-class BioZorroLayer(nn.Module):
+class MFDOOMLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
         self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
@@ -129,7 +121,7 @@ class BioZorroLayer(nn.Module):
         return batch
 
 @dataclass
-class BioZorroPretrainingLossesCollection(ModelOutput):
+class MFDOOMPretrainingLossesCollection(ModelOutput):
     contrastive_loss_spliced_unspliced: Optional[Tensor] = None
     contrastive_loss_spliced_expression: Optional[Tensor] = None
     contrastive_loss_unspliced_expression: Optional[Tensor] = None
@@ -139,7 +131,7 @@ class BioZorroPretrainingLossesCollection(ModelOutput):
 
 
 @dataclass
-class BioZorroPretrainingLossOutput(ModelOutput):
+class MFDOOMLossOutput(ModelOutput):
     losses: BioZorroPretrainingLossesCollection = field(default_factory=BioZorroPretrainingLossesCollection)
     spliced: Optional[Tensor] = None
     unspliced: Optional[Tensor] = None
@@ -148,7 +140,7 @@ class BioZorroPretrainingLossOutput(ModelOutput):
     global_output: Optional[Tensor] = None
 
 
-class BioZorroPretrainingLoss(nn.Module):
+class MFDOOMPretrainingLoss(nn.Module):
     """
     Pairwise contrastive loss.
     N.B. each loss function contains an all-gather operation
@@ -170,7 +162,7 @@ class BioZorroPretrainingLoss(nn.Module):
             pooled_tokens,
             no_loss = False
     ):
-        outputs = BioZorroPretrainingLossOutput()
+        outputs = MFDOOMPretrainingLossOutput()
         outputs.spliced = pooled_tokens[:, 0, :].squeeze(1)
         outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
         outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
@@ -194,21 +186,22 @@ class BioZorroPretrainingLoss(nn.Module):
         return outputs
 
 
-class BioZorro(nn.Module):
+class MFDOOM(nn.Module):
     def __init__(
             self,
             dim,
             depth,
-            ntokens=1024,
             dim_head=64,
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
-            vocab_size=20000,
+            encoder_configs = {},
+            #ntokens=1024,
             return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
                                                      TokenTypes.EXPRESSION, TokenTypes.FUSION,
                                                      TokenTypes.GLOBAL),
-            loss=BioZorroPretrainingLoss()
+            loss=CombinatorialPretrainingLoss()
+
     ):
         super().__init__()
        
@@ -217,62 +210,56 @@ class BioZorro(nn.Module):
         self.loss = loss
 
         self.max_return_tokens = len(return_token_types)
-
         self.return_token_types = return_token_types
         return_token_types_tensor = torch.tensor(list(map(lambda t: t.value, return_token_types)), device=self.device)
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
-
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
+
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.heads = heads
 
+        self.encoders = {}
+        self.encoders = {modality_name: encoders[encoder_config['encoder_class']](**encoder_config)
+                         for modality_name, encoder_config in encoder_configs.items()}
+        self.token_types = list(encoders.keys())
+        self.token_dims = [encoder_configs[token_type]['n_tokens'] for token_type in self.token_types]
 
-        self.heads = heads # Added
-        self.spliced_embedding = BioZorroEncoder(
-            num_embeddings = vocab_size,
-            embedding_dim = dim
-        )
-        self.unspliced_embedding = BioZorroEncoder(
-            num_embeddings = vocab_size,
-            embedding_dim = dim
-        )
-        self.expression_embedding = BioZorroEncoder(
-            num_embeddings = vocab_size,
-            embedding_dim = dim
-        )
         self.num_fusion_tokens = num_fusion_tokens
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
         self.fusion_mask = torch.ones(
                 num_fusion_tokens,
                 device=self.device
             ).to(torch.bool)
+        self.fusion_token = -1
+        self.global_token = -2
 
         # transformer
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
-            self.layers.append(BioZorroLayer(dim, dim_head, heads, ff_mult))
+            self.layers.append(MFDOOMLayer(dim, dim_head, heads, ff_mult))
 
         self.norm = LayerNorm(dim)
 
-        token_types = self.create_token_types_tensor(ntokens, num_fusion_tokens, self.device)
-        self.token_types = token_types
-        self.zorro_mask = self.create_zorro_mask(token_types)
-        self.pool_mask = self.create_pooling_mask(token_types, return_token_types_tensor)
+        self.token_types = self.create_token_types_tensor(self.token_dims, num_fusion_tokens, self.device)
+        self.zorro_mask = self.create_zorro_mask(self.token_types)
+        self.pool_mask = self.create_pooling_mask(self.token_types, return_token_types_tensor)
 
 
-    def create_token_types_tensor(self, ntokens, num_fusion_tokens, device):
-        return torch.tensor(list((
-                *((TokenTypes.SPLICED.value,) * ntokens),
-                *((TokenTypes.UNSPLICED.value,) * ntokens),
-                *((TokenTypes.EXPRESSION.value,) * ntokens),
-                *((TokenTypes.FUSION.value,) * num_fusion_tokens),
-            )), device=device, dtype=torch.long)
+    def create_token_types_tensor(self,dim_list, num_fusion_tokens, device):
+        """
+        returns e.g. tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, -1])
+        """
+        return torch.tensor([x for y in [[i] * n
+                                for i,n in enumerate(dim_list)]
+                                for x in y]  + [self.fusion_token] * num_fusion_tokens,
+                                device=device, dtype=torch.long)
 
     def create_zorro_mask(self, token_types):
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         zorro_mask = token_types_attend_from == token_types_attend_to
-        zorro_mask = zorro_mask | (token_types_attend_from == TokenTypes.FUSION.value)
+        zorro_mask = zorro_mask | (token_types_attend_from == self.fusion_token)
         zorro_mask = repeat(zorro_mask, 'j i -> i j')
         return ~zorro_mask
 
@@ -281,21 +268,13 @@ class BioZorro(nn.Module):
         pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
         # global queries can attend to all tokens
         pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
-            token_types_attend_to, dtype=torch.long) * TokenTypes.GLOBAL.value)
+            token_types_attend_to, dtype=torch.long) * self.global_token)
         return ~pool_mask
 
     def forward(
             self,
             *,
-            spliced_data: Optional[Tensor] = None,
-            spliced_index: Optional[Tensor] = None,
-            unspliced_data: Optional[Tensor] = None,
-            unspliced_index: Optional[Tensor] = None,
-            expression_data: Optional[Tensor] = None,
-            expression_index: Optional[Tensor] = None,
-            spliced_mask: Optional[Tensor] = None,
-            unspliced_mask: Optional[Tensor] = None,
-            expression_mask: Optional[Tensor] = None,
+            batch, #dict like {modality_name: modality_batch} batch is first index of each modality
             no_loss = False,
     ):
         # Concatenate samples and prepare attention masks
