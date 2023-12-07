@@ -85,6 +85,7 @@ class TabularEncoder(nn.Module):
     def forward(self, batch) -> Tensor:
         x_t = self.token_encoder(self.index)
         x_v = self.value_encoder(batch)
+        #x_t = repeat(x_p, 'i -> b i', b = x_v.shape[0]) #May need to use this if it doesn't broadcast
         x = x_t + x_v
         return x
 
@@ -148,7 +149,7 @@ class SequenceEncoder(nn.Module):
                  ):
         super().__init__()
         self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
-        self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens):
+        self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
         x_t = self.token_encoder(batch)
@@ -163,9 +164,16 @@ class PatchEncoder(nn.Module):
     images (a 2d Matrix with 3 channels)
     and video (a 3d tensor with 3 channels)
 
-    # TODO Does this need or benefit from positional encoding?
+    # TODO Need to mask this one somehow - based on patches
     """
-    def __init__(self, d_model: int, patch_size, max_patches = 256, mode = "matrix", num_channels = 3, dropout: float = 0.1):
+    def __init__(self,
+                 patch_size = (16,16), #2 or 3 dimensions
+                 mode="matrix",
+                 num_channels=3, #Only for image or video
+                 embedding_dim = 512,
+                 max_tokens = 1024,
+                 dropout: float = 0.1
+                 ):
         self.dropout = nn.Dropout(p=dropout)
         assert mode in ["matrix", "image", "video"] #Matrix is for mostly audio spectrograms
         if mode in ["matrix", "image"]:
@@ -181,20 +189,23 @@ class PatchEncoder(nn.Module):
         elif mode == "video":
             input_dim = cum_mul(self.patch_size) * num_channels
             rearranger = Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)',
-                                   p1=patch_size[0], p2=patch_size[1], patch_size[2])
-        self
+                                   p1=patch_size[0], p2=patch_size[1], p3=patch_size[2])
         self.batch_to_tokens = nn.Sequential(
                 rearranger,
                 nn.LayerNorm(input_dim),
-                nn.Linear(input_dim, d_model),
-                nn.LayerNorm(d_model)
+                nn.Linear(input_dim, embedding_dim),
+                nn.LayerNorm(embedding_dim)
             )
 
-        self.embedding = nn.Embedding(max_patches, d_model) #max_norm?
+        self.index = torch.arange(max_tokens).unsqueeze(1)
+        self.embedding = nn.Embedding(max_tokens, embedding_dim) #max_norm?
+
     def forward(self, batch):
-        x_t = self.batch_to_tokens(batch)
-        x_p = self.embedding()
-        return self.dropout(batch)
+        x_t = self.batch_to_tokens(batch) #Linear projection of each patch
+        x_p = self.embedding(self.index) #Learnable positional embedding
+        #x_p = repeat(x_p, 'i -> b i', b = x_t.shape[0]) #May need to use this if it doesn't broadcast
+        x = x_t + x_p
+        return self.dropout(x)
 
 
 class MultimodalCollator:
