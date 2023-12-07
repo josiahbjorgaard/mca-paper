@@ -84,7 +84,7 @@ class TabularEncoder(nn.Module):
 
     def forward(self, batch) -> Tensor:
         x_t = self.token_encoder(self.index)
-        x_v = self.value_encoder(batch)
+        x_v = self.value_encoder(batch['values'])
         #x_t = repeat(x_p, 'i -> b i', b = x_v.shape[0]) #May need to use this if it doesn't broadcast
         x = x_t + x_v
         return x
@@ -104,8 +104,8 @@ class SparseTabularEncoder(nn.Module):
         self.value_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
 
     def forward(self, batch) -> Tensor:
-        index = batch['index']
-        value = batch['value']
+        index = batch['indices']
+        value = batch['values']
         x_t = self.token_encoder(index)
         x_v = self.value_encoder(value)
         x = x_t + x_v
@@ -152,8 +152,8 @@ class SequenceEncoder(nn.Module):
         self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
-        x_t = self.token_encoder(batch)
-        x_p = self.positional_encoder(batch)
+        x_t = self.token_encoder(batch['token'])
+        x_p = self.positional_encoder(batch['token'])
         x = x_t + x_p
         return x
 
@@ -165,6 +165,7 @@ class PatchEncoder(nn.Module):
     and video (a 3d tensor with 3 channels)
 
     # TODO Need to mask this one somehow - based on patches
+        Added it here, but it should be somehow in the collator...
     """
     def __init__(self,
                  patch_size = (16,16), #2 or 3 dimensions
@@ -172,8 +173,10 @@ class PatchEncoder(nn.Module):
                  num_channels=3, #Only for image or video
                  embedding_dim = 512,
                  max_tokens = 1024,
-                 dropout: float = 0.1
+                 dropout: float = 0.1,
+                 attn_mask = True
                  ):
+        self.attn_mask = attn_mask
         self.dropout = nn.Dropout(p=dropout)
         assert mode in ["matrix", "image", "video"] #Matrix is for mostly audio spectrograms
         if mode in ["matrix", "image"]:
@@ -201,11 +204,12 @@ class PatchEncoder(nn.Module):
         self.embedding = nn.Embedding(max_tokens, embedding_dim) #max_norm?
 
     def forward(self, batch):
-        x_t = self.batch_to_tokens(batch) #Linear projection of each patch
+        x_t = self.batch_to_tokens(batch['values']) #Linear projection of each patch
         x_p = self.embedding(self.index) #Learnable positional embedding
         #x_p = repeat(x_p, 'i -> b i', b = x_t.shape[0]) #May need to use this if it doesn't broadcast
         x = x_t + x_p
-        return self.dropout(x)
+        attention_mask = torch.all(batch, dim=-1) if self.attn_mask else None
+        return self.dropout(x), attention_mask
 
 # Dictionaries for accessing Encoders and Collators from config
 encoders = {
@@ -213,6 +217,49 @@ encoders = {
                 "TabularEncoder": TabularEncoder,
                 "PatchEncoder": PatchEncoder,
             }
+
+
+class SequenceCollator:
+    """
+    Sequence collator that also works for dense and sparse tabular data
+    For sequence data, input {'index':Tensor}
+    For dense tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == table length
+    For sparse tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == padded length
+    TODO: add truncation
+    """
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True):
+        self.pad_token = pad_token
+        self.pad_len = pad_len
+        self.attn_mask = attn_mask
+
+    def __call__(self, data):
+        collated_data = {
+            'indices': [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
+                      for index in data['indices']]}
+        if self.attn_mask:
+            collated_data['attention_mask'] = [(padded_index == self.pad_token).to(torch.long) for padded_index in padded_indices]
+        if 'values' in data.keys():
+            collated_data['values'] = [pad(data, (0, self.pad_len-data.shape[-1]), mode='constant', value=0.0)
+                            for data in data['values']]
+        return {k: torch.stack(v) for k,v in collated_data.items()}
+
+
+class MatrixCollator:
+    """
+    2D matrix collator
+    """
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True):
+        self.pad_token = pad_token
+        self.pad_len = pad_len
+        #self.attn_mask = attn_mask
+
+    def __call__(self, data):
+        collated_data = {
+            'values': [pad(x, (0,0,0, self.pad_len - x.shape[0]), mode='constant', value=self.pad_token)
+                       for x in data['values']]
+        }
+        return {k: torch.stack(v) for k,v in collated_data.items()}
+
 
 class OldSequenceCollator:
     """
@@ -237,58 +284,6 @@ class OldSequenceCollator:
                     collated_data[k.split('_')[0]+'_mask'].append((padded_v != self.pad_token).to(torch.bool))
         for k,v in collated_data.items():
             collated_data[k]=torch.stack(v)
-        return collated_data
-
-
-class SequenceCollator:
-    """
-    Sequence collator that also works for dense and sparse tabular data
-    For sequence data, input {'index':Tensor}
-    For dense tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == table length
-    For sparse tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == padded length
-    TODO: add truncation
-    """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True):
-        self.pad_token = pad_token
-        self.pad_len = pad_len
-        self.attn_mask = attn_mask
-
-    def __call__(self, data):
-        collated_data = {
-            'index': [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
-                      for index in data['index']]}
-        if self.attn_mask:
-            collated_data['attention_mask'] = [(padded_index == self.pad_token).to(torch.long) for padded_index in padded_indices]
-        if 'value' in data.keys():
-            collated_data['value'] = [pad(data, (0, self.pad_len-data.shape[-1]), mode='constant', value=0.0)
-                            for data in data['value']]
-        return {k: torch.stack(v) for k,v in collated_data.items()}
-
-
-class PatchCollator:
-    """
-    Sequence collator that also works for sparse tabular data (for it's index vector)
-    data is a dict of {'index': Tensor, 'mask': Tensor}
-    """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False):
-        self.pad_token = pad_token
-        self.pad_len = pad_len
-        self.attn_mask = attn_mask
-
-    def __call__(self, data):
-        collated_data = {k: list() for k in data[0].keys()}
-        if self.attn_mask:
-            for k in [key for key in collated_data.keys() if 'index' in key]:
-                collated_data[k.split('_')[0] + '_mask'] = list()
-        for d in data:
-            for k,v in d.items():
-                length = v.shape[-1]
-                padded_v = pad(v, (0,self.pad_len-length), mode='constant', value=self.pad_token)
-                collated_data[k].append(padded_v)
-                if self.attn_mask and 'index' in k:
-                    collated_data[k.split('_')[0]+'_mask'].append((padded_v != self.pad_token).to(torch.bool))
-        for k,v in collated_data.items():
-            collated_data[k] = torch.stack(v)
         return collated_data
 
 
@@ -340,38 +335,6 @@ class OldSequenceCollatorWithTargets:
         return collated_data
 
 
-class PatchCollator:
-    """
-    Sequence collator that also works for sparse tabular data (for it's index vector)
-    data is a dict of {'index': Tensor, 'mask': Tensor}
-    """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False):
-        self.pad_token = pad_token
-        self.pad_len = pad_len
-        self.attn_mask = attn_mask
-
-    def __call__(self, data):
-        collated_data = {k: list() for k in data[0].keys()}
-        if self.attn_mask:
-            for k in [key for key in collated_data.keys() if 'index' in key]:
-                collated_data[k.split('_')[0] + '_mask'] = list()
-        for d in data:
-            for k,v in d.items():
-                length = v.shape[-1]
-                padded_v = pad(v, (0,self.pad_len-length), mode='constant', value=self.pad_token)
-                collated_data[k].append(padded_v)
-                if self.attn_mask and 'index' in k:
-                    collated_data[k.split('_')[0]+'_mask'].append((padded_v != self.pad_token).to(torch.bool))
-        for k,v in collated_data.items():
-            collated_data[k] = torch.stack(v)
-        return collated_data
-
-collators = {
-                #"MultimodalCollator": MultimodalCollator,
-                "SequenceCollator": SequenceCollator,
-                #"SequenceCollatorWithTargets": SequenceCollatorWithTargets,
-                "PatchCollator": PatchCollator
-            }
 class MultimodalCollator:
     """
     Configurable collator for multimodal data with missing modalities
