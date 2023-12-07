@@ -4,50 +4,17 @@ from torch.nn.functional import pad
 from torch import Tensor
 from typing import Optional
 from einops.layers.torch import Rearrange
+import functools
+import math
 
 def cum_mul(it):
     return functools.reduce(lambda x, y: x * y, it, 1)
 
 
-class TabularEncoder(nn.Module):
-    def __init__(self,
-                 num_embeddings = 36602, #Vocab size
-                 embedding_dim = 512, #size of embedding vector
-                 padding_idx = 0, #padding (no entry) token
-                 dropout = 0.0,
-                 max_value = 10000,
-                 ):
-        super().__init__()
-        self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
-        self.value_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
-
-    def forward(self, index: Tensor, value: Tensor) -> Tensor:
-        x_i = self.token_encoder(index)
-        x_v = self.value_encoder(value)
-        x = x_i + x_v
-        return x
-
-
-class SequenceEncoder(nn.Module):
-    def __init__(self,
-                 num_embeddings = 36602, #Vocab size
-                 embedding_dim = 512, #size of embedding vector
-                 padding_idx = 0, #padding (no entry) token
-                 dropout = 0.0,
-                 ):
-        super().__init__()
-        self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
-        self.positional_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
-
-    def forward(self, index: Tensor, value: Tensor) -> Tensor:
-        x_i = self.token_encoder(index)
-        x_v = self.positional_encoder(value)
-        x = x_i + x_v
-        return x
-
-
-
 class TokenEncoder(nn.Module):
+    """
+    Just an nn.embedding wrapper
+    """
     def __init__(
         self,
         num_embeddings: int,
@@ -68,7 +35,7 @@ class TokenEncoder(nn.Module):
 
 class ContinuousValueEncoder(nn.Module):
     """
-    Encode real number values to a vector using neural nets projection.
+    Encode real number values to a vector using MLP projection.
     """
 
     def __init__(self, d_model: int, dropout: float = 0.1, max_value: int = 512, padding_value = 0.0):
@@ -101,6 +68,49 @@ class ContinuousValueEncoder(nn.Module):
         return x
 
 
+class TabularEncoder(nn.Module):
+    """Tabular encoder"""
+    def __init__(self,
+                 num_embeddings = 128, #Vocab size
+                 embedding_dim = 512, #size of embedding vector
+                 padding_idx = 0, #padding (no entry) token
+                 dropout = 0.0,
+                 max_value = 10000,
+                 ):
+        super().__init__()
+        self.index = torch.arange(num_embeddings).unsqueeze(1)
+        self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
+        self.value_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
+
+    def forward(self, batch) -> Tensor:
+        x_t = self.token_encoder(self.index)
+        x_v = self.value_encoder(batch)
+        x = x_t + x_v
+        return x
+
+
+class SparseTabularEncoder(nn.Module):
+    """Sparse tabular encoder"""
+    def __init__(self,
+                 num_embeddings = 36602, #Vocab size
+                 embedding_dim = 512, #size of embedding vector
+                 padding_idx = 0, #padding (no entry) token
+                 dropout = 0.0,
+                 max_value = 10000,
+                 ):
+        super().__init__()
+        self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
+        self.value_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
+
+    def forward(self, batch) -> Tensor:
+        index = batch['index']
+        value = batch['value']
+        x_t = self.token_encoder(index)
+        x_v = self.value_encoder(value)
+        x = x_t + x_v
+        return x
+
+
 class PositionalEncoder(nn.Module):
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 2048):
         super().__init__()
@@ -125,50 +135,73 @@ class PositionalEncoder(nn.Module):
         return self.dropout(self.pe[: x.size(0)])
 
 
+class SequenceEncoder(nn.Module):
+    """
+    Basic sequence encoder with sinusoidal positional embedding
+    """
+    def __init__(self,
+                 num_embeddings = 36602, #Vocab size
+                 embedding_dim = 512, #size of embedding vector
+                 padding_idx = 0, #padding (no entry) token
+                 dropout = 0.0,
+                 max_tokens = 1024,
+                 ):
+        super().__init__()
+        self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
+        self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens):
+
+    def forward(self, batch) -> Tensor:
+        x_t = self.token_encoder(batch)
+        x_p = self.positional_encoder(batch)
+        x = x_t + x_p
+        return x
+
+
 class PatchEncoder(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 2048):
+    """
+    Patch encoder for audio spectrograms (a 2D matrix),
+    images (a 2d Matrix with 3 channels)
+    and video (a 3d tensor with 3 channels)
 
-        # audio input
-        self.audio_patch_size = audio_patch_height, audio_patch_width = pair(audio_patch_size)
+    # TODO Does this need or benefit from positional encoding?
+    """
+    def __init__(self, d_model: int, patch_size, max_patches = 256, mode = "matrix", num_channels = 3, dropout: float = 0.1):
+        self.dropout = nn.Dropout(p=dropout)
+        assert mode in ["matrix", "image", "video"] #Matrix is for mostly audio spectrograms
+        if mode in ["matrix", "image"]:
+            assert len(patch_size) == 2
+        elif mode in ["video"]:
+            assert len(patch_size) == 3
+        if mode == "matrix":
+            input_dim = cum_mul(self.patch_size)
+            rearranger = Rearrange('b (h p1) (w p2) -> b h w (p1 p2)', p1=patch_size[0], p2=patch_size[1]),
+        elif mode == "image":
+            input_dim = cum_mul(self.patch_size) * num_channels
+            rearranger = Rearrange('b c (h p1) (w p2) -> b h w (c p1 p2)', p1=patch_size[0], p2=patch_size[1]),
+        elif mode == "video":
+            input_dim = cum_mul(self.patch_size) * num_channels
+            rearranger = Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)',
+                                   p1=patch_size[0], p2=patch_size[1], patch_size[2])
+        self
+        self.batch_to_tokens = nn.Sequential(
+                rearranger,
+                nn.LayerNorm(input_dim),
+                nn.Linear(input_dim, d_model),
+                nn.LayerNorm(d_model)
+            )
 
-        """
-        self.spec = Spectrogram(
-            n_fft=spec_n_fft,
-            power=spec_power,
-            win_length=spec_win_length,
-            hop_length=spec_hop_length,
-            pad=spec_pad,
-            center=spec_center,
-            pad_mode=spec_pad_mode
-        )
-        """
-        audio_input_dim = cum_mul(self.audio_patch_size)
-
-
-        self.audio_to_tokens = nn.Sequential(
-            Rearrange('b (h p1) (w p2) -> b h w (p1 p2)', p1=audio_patch_height, p2=audio_patch_width),
-            nn.LayerNorm(audio_input_dim),
-            nn.Linear(audio_input_dim, dim),
-            nn.LayerNorm(dim)
-        )
-    def forward(self, x):
-
-        # video input
-        self.video_patch_size = (video_temporal_patch_size, *pair(video_patch_size))
-
-        video_input_dim = cum_mul(self.video_patch_size) * video_channels
-        video_patch_time, video_patch_height, video_patch_width = self.video_patch_size
-
-        self.video_to_tokens = nn.Sequential(
-            Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)', p1=video_patch_time, p2=video_patch_height,
-                      p3=video_patch_width),
-            nn.LayerNorm(video_input_dim),
-            nn.Linear(video_input_dim, dim),
-            nn.LayerNorm(dim)
-        )
+        self.embedding = nn.Embedding(max_patches, d_model) #max_norm?
+    def forward(self, batch):
+        x_t = self.batch_to_tokens(batch)
+        x_p = self.embedding()
+        return self.dropout(batch)
 
 
-class BioZorroCollator:
+class MultimodalCollator:
+    """
+    Configurable collator for multimodal data with missing modalities
+    Could be used to mask modalities
+    """
     def __init__(self, pad_token=0, pad_len=2048, attn_mask=False):
         self.pad_token = pad_token
         self.pad_len=pad_len
@@ -191,7 +224,33 @@ class BioZorroCollator:
         return collated_data
 
 
-class BioZorroCollatorWithTargets:
+class SequenceCollator:
+    """
+    Sequence collator that also works for sparse tabular data (for it's index vector)
+    """
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False):
+        self.pad_token = pad_token
+        self.pad_len=pad_len
+        self.attn_mask = attn_mask
+
+    def __call__(self, data):
+        collated_data = {k: list() for k in data[0].keys()}
+        if self.attn_mask:
+            for k in [key for key in collated_data.keys() if 'index' in key]:
+                collated_data[k.split('_')[0] + '_mask'] = list()
+        for d in data:
+            for k,v in d.items():
+                length = v.shape[-1]
+                padded_v = pad(v, (0,self.pad_len-length), mode='constant', value=self.pad_token)
+                collated_data[k].append(padded_v)
+                if self.attn_mask and 'index' in k:
+                    collated_data[k.split('_')[0]+'_mask'].append((padded_v != self.pad_token).to(torch.bool))
+        for k,v in collated_data.items():
+            collated_data[k]=torch.stack(v)
+        return collated_data
+
+
+class SequenceCollatorWithTargets:
     """
     Create a vector with zeros for targets, instead of treating them as a padded sequence.
     """
@@ -247,6 +306,7 @@ encoders = {
             }
 
 collators = {
-
-
+                "MultimodalCollator": MultimodalCollator,
+                "SequenceCollator": SequenceCollator,
+                "SequenceCollatorWithTargets": SequenceCollatorWithTargets,
             }

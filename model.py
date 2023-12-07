@@ -1,6 +1,8 @@
-from enum import Enum
+#from enum import Enum
 
-from dataclasses import dataclass, field
+#from dataclasses import dataclass, field
+
+from itertools import combinations
 
 import torch
 import torch.nn.functional as F
@@ -8,14 +10,15 @@ from torch import nn, einsum, Tensor
 
 from einops import rearrange, repeat, pack, unpack
 
-from torchmultimodal.utils.common import ModelOutput
+#from torchmultimodal.utils.common import ModelOutput
 from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
 
 from beartype.typing import Tuple, Optional, Union
 
 from encoders import encoders
 
-import torch_xla.core.xla_model as xm
+#import torch_xla.core.xla_model as xm
+
 
 def default(*args):
     for arg in args:
@@ -120,25 +123,6 @@ class MFDOOMLayer(nn.Module):
         batch = self.ff(batch) + batch
         return batch
 
-@dataclass
-class MFDOOMPretrainingLossesCollection(ModelOutput):
-    contrastive_loss_spliced_unspliced: Optional[Tensor] = None
-    contrastive_loss_spliced_expression: Optional[Tensor] = None
-    contrastive_loss_unspliced_expression: Optional[Tensor] = None
-    fusion_loss_spliced: Optional[Tensor] = None
-    fusion_loss_unspliced: Optional[Tensor] = None
-    fusion_loss_expression: Optional[Tensor] = None
-
-
-@dataclass
-class MFDOOMLossOutput(ModelOutput):
-    losses: BioZorroPretrainingLossesCollection = field(default_factory=BioZorroPretrainingLossesCollection)
-    spliced: Optional[Tensor] = None
-    unspliced: Optional[Tensor] = None
-    expression: Optional[Tensor] = None
-    fusion: Optional[Tensor] = None
-    global_output: Optional[Tensor] = None
-
 
 class MFDOOMPretrainingLoss(nn.Module):
     """
@@ -148,41 +132,26 @@ class MFDOOMPretrainingLoss(nn.Module):
     """
     def __init__(
             self,
+            modality_names,
     ):
         super().__init__()
-        self.contrastive_loss_spliced_unspliced = ContrastiveLossWithTemperature()
-        self.contrastive_loss_spliced_expression = ContrastiveLossWithTemperature()
-        self.contrastive_loss_unspliced_expression = ContrastiveLossWithTemperature()
-        self.fusion_loss_spliced = ContrastiveLossWithTemperature()
-        self.fusion_loss_unspliced = ContrastiveLossWithTemperature()
-        self.fusion_loss_expression = ContrastiveLossWithTemperature()
+        self.modality_names = modality_names
+        self.modality_names.append('fusion')
+        #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
+        self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
+                       for pair in combinations(self.modality_names)}
 
     def forward(
             self,
             pooled_tokens,
             no_loss = False
     ):
-        outputs = MFDOOMPretrainingLossOutput()
-        outputs.spliced = pooled_tokens[:, 0, :].squeeze(1)
-        outputs.unspliced = pooled_tokens[:, 1, :].squeeze(1)
-        outputs.expression = pooled_tokens[:, 2, :].squeeze(1)
-        outputs.fusion = pooled_tokens[:, 3, :].squeeze(1)
-        outputs.global_output = pooled_tokens[:, 4, :].squeeze(1)
-        if no_loss:
-            return outputs
-
-        outputs.losses.contrastive_loss_spliced_unspliced = self.contrastive_loss_spliced_unspliced(outputs.unspliced, outputs.unspliced)
-        outputs.losses.contrastive_loss_spliced_expression = self.contrastive_loss_spliced_expression(outputs.spliced, outputs.expression)
-        outputs.losses.contrastive_loss_unspliced_expression = self.contrastive_loss_unspliced_expression(outputs.unspliced, outputs.expression)
-        outputs.losses.fusion_loss_spliced = self.fusion_loss_spliced(outputs.spliced, outputs.fusion)
-        outputs.losses.fusion_loss_unspliced = self.fusion_loss_unspliced(outputs.unspliced, outputs.fusion)
-        outputs.losses.fusion_loss_expression = self.fusion_loss_expression(outputs.expression,outputs.fusion)
-        outputs.loss = outputs.losses.contrastive_loss_spliced_unspliced + \
-                       outputs.losses.contrastive_loss_spliced_expression + \
-                       outputs.losses.contrastive_loss_unspliced_expression + \
-                       outputs.losses.fusion_loss_spliced + \
-                       outputs.losses.fusion_loss_unspliced + \
-                       outputs.losses.fusion_loss_expression
+        outputs = {modality_name: pooled_tokens[:,i,:].squeeze(1)
+                   for i, modality_name in enumerate(self.modality_names)}
+        outputs['global_output'] = pooled_tokens[:,-1, :].squeeze(1)
+        if not no_loss:
+            outputs['losses'] = {"_".join(k): self.losses[k](outputs[k[0]],outputs[k[1]]) for k in self.losses.keys()}
+            outputs['loss'] = torch.sum(torch.tensor(list(outputs['losses'].values))) #Hopefully this works
         return outputs
 
 
@@ -196,16 +165,15 @@ class MFDOOM(nn.Module):
             ff_mult=4,
             num_fusion_tokens=16,
             encoder_configs = {},
+            batch_size = 8,
             #ntokens=1024,
-            return_token_types: Tuple[TokenTypes] = (TokenTypes.SPLICED, TokenTypes.UNSPLICED,
-                                                     TokenTypes.EXPRESSION, TokenTypes.FUSION,
-                                                     TokenTypes.GLOBAL),
-            loss=CombinatorialPretrainingLoss()
+            loss=MFDOOMPretrainingLoss()
 
     ):
         super().__init__()
        
-        self.device = xm.xla_device()
+        self.device = torch.cuda.current_device() #xm.xla_device()
+        self.batch_size = batch_size
 
         self.loss = loss
 
@@ -275,36 +243,22 @@ class MFDOOM(nn.Module):
             self,
             *,
             batch, #dict like {modality_name: modality_batch} batch is first index of each modality
+            attention_masks, #dict like above
             no_loss = False,
     ):
         # Concatenate samples and prepare attention masks
-        batch, device = spliced_data.shape[0], spliced_data.device
-        spliced_tokens = self.spliced_embedding(spliced_index, spliced_data)
-        unspliced_tokens = self.unspliced_embedding(unspliced_index, unspliced_data)
-        expression_tokens = self.expression_embedding(expression_index, expression_data)
+        batch, device = self.batch_size, self.device
+        tokens = [self.encoders[modality_name](batch[modality_name])
+                   for modality_name in self.token_types] # in case order mixed up
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
+        tokens.append(fusion_tokens)
+        tokens, ps = pack(tokens , 'b * d')
+
         fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch)
-
-        spliced_tokens, \
-        unspliced_tokens, \
-        expression_tokens, \
-        fusion_tokens = map(lambda t: rearrange(t, 'b ... d -> b (...) d'),
-                               (spliced_tokens, unspliced_tokens, expression_tokens, fusion_tokens))
-
-        tokens, ps = pack((
-            spliced_tokens,
-            unspliced_tokens,
-            expression_tokens,
-            fusion_tokens
-        ), 'b * d')
-
-        padding, ps = pack((
-                spliced_mask,
-                unspliced_mask,
-                expression_mask,
-                fusion_mask),
-                'b *')
-        padding = ~padding #The masks are like 1 1 1 0 0 where 1 denotes non-padding
+        attention_mask = [attention_masks[modality_name] for modality_name in self.token_types]
+        attention_mask.append(fusion_mask)
+        padding, ps = pack(attention_mask, 'b *')
+        padding = ~padding # If The masks are like 1 1 1 0 0 where 1 denotes non-padding
 
         # Run model
         # attend and feedforward
