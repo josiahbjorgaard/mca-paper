@@ -20,7 +20,8 @@ class TokenEncoder(nn.Module):
         num_embeddings: int,
         embedding_dim: int,
         padding_idx: Optional[int] = None,
-        max_norm: Optional[float] = 1.0
+        max_norm: Optional[float] = 1.0,
+            **kwargs
     ):
         super().__init__()
         self.num_embeddings = num_embeddings #debug
@@ -38,7 +39,7 @@ class ContinuousValueEncoder(nn.Module):
     Encode real number values to a vector using MLP projection.
     """
 
-    def __init__(self, d_model: int, dropout: float = 0.1, max_value: int = 512, padding_value = 0.0):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_value: int = 512, padding_value = 0.0,  **kwargs):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         self.linear1 = nn.Linear(1, d_model)
@@ -76,6 +77,7 @@ class TabularEncoder(nn.Module):
                  padding_idx = 0, #padding (no entry) token
                  dropout = 0.0,
                  max_value = 10000,
+                 **kwargs
                  ):
         super().__init__()
         self.index = torch.arange(num_embeddings).unsqueeze(1)
@@ -98,6 +100,7 @@ class SparseTabularEncoder(nn.Module):
                  padding_idx = 0, #padding (no entry) token
                  dropout = 0.0,
                  max_value = 10000,
+                 **kwargs
                  ):
         super().__init__()
         self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
@@ -113,7 +116,7 @@ class SparseTabularEncoder(nn.Module):
 
 
 class PositionalEncoder(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 2048):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 2048,  **kwargs):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -146,6 +149,7 @@ class SequenceEncoder(nn.Module):
                  padding_idx = 0, #padding (no entry) token
                  dropout = 0.0,
                  max_tokens = 1024,
+                 **kwargs
                  ):
         super().__init__()
         self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
@@ -174,7 +178,8 @@ class PatchEncoder(nn.Module):
                  embedding_dim = 512,
                  max_tokens = 1024,
                  dropout: float = 0.1,
-                 attn_mask = True
+                 attn_mask = True,
+                 **kwargs
                  ):
         self.attn_mask = attn_mask
         self.dropout = nn.Dropout(p=dropout)
@@ -227,7 +232,7 @@ class SequenceCollator:
     For sparse tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == padded length
     TODO: add truncation
     """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True):
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True,  **kwargs):
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.attn_mask = attn_mask
@@ -248,7 +253,7 @@ class MatrixCollator:
     """
     2D matrix collator
     """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True):
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True,  **kwargs):
         self.pad_token = pad_token
         self.pad_len = pad_len
         #self.attn_mask = attn_mask
@@ -265,7 +270,7 @@ class OldSequenceCollator:
     """
     Sequence collator that also works for sparse tabular data (for it's index vector)
     """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False):
+    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False,  **kwargs):
         self.pad_token = pad_token
         self.pad_len=pad_len
         self.attn_mask = attn_mask
@@ -296,7 +301,9 @@ class OldSequenceCollatorWithTargets:
             target_name = "velocity",
             target_size=2000,
             target_ids=None,
-            norm=[1.0,0.0]):
+            norm=[1.0,0.0],
+                 **kwargs
+                 ):
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.target_name = target_name
@@ -335,12 +342,17 @@ class OldSequenceCollatorWithTargets:
         return collated_data
 
 
+collators = {
+    'matrix': MatrixCollator,
+    'sequence': SequenceCollator
+}
+
 class MultimodalCollator:
     """
     Configurable collator for multimodal data with missing modalities
     Could be used to mask modalities
     """
-    def __init__(self, modality_config):
+    def __init__(self, modality_config, **kwargs):
         self.modality_collators = {modality_name: collators[config['type']](**config)
                                    for modality_name,config in modality_config.items()}
 

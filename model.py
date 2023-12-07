@@ -242,23 +242,21 @@ class MFDOOM(nn.Module):
     def forward(
             self,
             *,
-            batch, #dict like {modality_name: modality_batch} batch is first index of each modality
-            attention_masks, #dict like above
+            batch, #dict like {modality_name: modality_data_dict} batch is first index of each modality
             no_loss = False,
     ):
         # Concatenate samples and prepare attention masks
         batch_size, device = self.batch_size, self.device
-        tokens = [self.encoders[modality_name](batch[modality_name])
+        tokens, attention_masks = [self.encoders[modality_name](batch[modality_name])
                    for modality_name in self.token_types] # in case order mixed up
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
         tokens.append(fusion_tokens)
         tokens, ps = pack(tokens , 'b * d')
 
         fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
-        attention_mask = [attention_masks[modality_name] for modality_name in self.token_types]
         attention_mask.append(fusion_mask)
         padding, ps = pack(attention_mask, 'b *')
-        padding = ~padding # If The masks are like 1 1 1 0 0 where 1 denotes non-padding
+        #padding = ~padding # If The masks are like 1 1 1 0 0 where 1 denotes non-padding
 
         # Run model
         # attend and feedforward
