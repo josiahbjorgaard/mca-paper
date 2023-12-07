@@ -247,14 +247,14 @@ class MFDOOM(nn.Module):
             no_loss = False,
     ):
         # Concatenate samples and prepare attention masks
-        batch, device = self.batch_size, self.device
+        batch_size, device = self.batch_size, self.device
         tokens = [self.encoders[modality_name](batch[modality_name])
                    for modality_name in self.token_types] # in case order mixed up
-        fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch)
+        fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
         tokens.append(fusion_tokens)
         tokens, ps = pack(tokens , 'b * d')
 
-        fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch)
+        fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
         attention_mask = [attention_masks[modality_name] for modality_name in self.token_types]
         attention_mask.append(fusion_mask)
         padding, ps = pack(attention_mask, 'b *')
@@ -266,7 +266,7 @@ class MFDOOM(nn.Module):
             tokens = layer(tokens, self.zorro_mask, padding)
         tokens = self.norm(tokens)
         # pooling
-        return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch)
+        return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
         pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, no_loss)
         return loss
