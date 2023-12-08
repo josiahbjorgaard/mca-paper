@@ -31,10 +31,12 @@ datasets = setup_data(config.dataset,
                       ds_frac=config.ds_frac,
                       ds_seed=config.ds_seed)
 
-# BioZorro Collator
-default_data_collator = MultimodalCollator(pad_len=config.pad_len, pad_token=0)
+# Collator
+default_data_collator = MultimodalCollator(config.modality_config)
 model_config = get_model_config(config)
-model = MFDOOM(**model_config)
+device = accelerator.device
+
+model = MFDOOM(**model_config, device=device)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
@@ -83,7 +85,6 @@ if config.restart:
 # Start model training and defining the training loop
 
 model.train()
-device = accelerator.device
 world_size = torch.cuda.device_count()
 for epoch in range(config.epochs):
     for idb, batch in enumerate(train_dl):
