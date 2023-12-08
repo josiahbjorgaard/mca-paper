@@ -150,7 +150,7 @@ class MFDOOMPretrainingLoss(nn.Module):
                    for i, modality_name in enumerate(self.modality_names)}
         outputs['global_output'] = pooled_tokens[:,-1, :].squeeze(1)
         if not no_loss:
-            outputs['losses'] = {"_".join(k): self.losses[k](outputs[k[0]],outputs[k[1]]) for k in self.losses.keys()}
+            outputs['losses'] = {"_".join(k): self.losses[k](*[outputs[x] for x in k]) for k in self.losses.keys()}
             outputs['loss'] = torch.sum(torch.tensor(list(outputs['losses'].values))) #Hopefully this works
         return outputs
 
@@ -221,6 +221,7 @@ class MFDOOM(nn.Module):
         """
         returns e.g. tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, -1])
         """
+        print(dim_list)
         return torch.tensor([x for y in [[i] * n
                                 for i,n in enumerate(dim_list)]
                                 for x in y]  + [self.fusion_token] * num_fusion_tokens,
