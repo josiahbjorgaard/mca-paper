@@ -7,6 +7,7 @@ from einops import repeat
 from einops.layers.torch import Rearrange
 import functools
 import math
+from collections import defaultdict
 
 def cum_mul(it):
     return functools.reduce(lambda x, y: x * y, it, 1)
@@ -158,6 +159,7 @@ class SequenceEncoder(nn.Module):
         self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
+        #print(batch)
         x_t = self.token_encoder(batch['tokens'])
         x_p = self.positional_encoder(batch['tokens'])
         x = x_t + x_p
@@ -247,6 +249,7 @@ class SequenceCollator:
         self.data_col_name = data_col_name
 
     def __call__(self, data):
+        #print(data)
         collated_data = {
             self.data_col_name: [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
                       for index in data[self.data_col_name]]}
@@ -269,6 +272,7 @@ class MatrixCollator:
         #self.attn_mask = attn_mask
 
     def __call__(self, data):
+        data['values'] = [torch.full((self.max_channels,self.pad_len),self.pad_token) if x is None else x for x in data['values']]
         collated_data = {
             'values': [pad(x, (0,0,0, self.pad_len - x.shape[0]), mode='constant', value=self.pad_token)
                        for x in data['values']]
@@ -370,10 +374,17 @@ class MultimodalCollator:
                                    for modality_name,config in modality_config.items()}
 
     def __call__(self, batch):
-        assert self.modality_collators.keys() == batch.keys()
-        print(batch)
-        batch = {k2:{k: [dic[k] for dic in v2] for k in v2[0]} for k2,v2 in batch.items()} #TODO Fix this batching
         #print(batch)
-        return {k :self.modality_collators[k](v) for k,v in batch.items()}
+        assert self.modality_collators.keys() <= batch[0].keys(), f"{self.modality_collators.keys()} - {batch[0].keys()}"
+        #batch = {k2:{k: [dic[k] for dic in v2[0]] for k in v2} for k2,v2 in batch.items()} #TODO Fix this batching
+        #return batch
+        d = defaultdict(lambda: defaultdict(list))
+        for b in batch:
+            for k in self.modality_collators.keys():
+                v = b[k]
+                for k2,v2 in v.items():
+                    d[k][k2].append(v2)
+        #batch = {k2:{k: [dic[k] for dic in v2] for k in v2.keys()} for k2,v2 in batch[0].items()}
+        return {k :self.modality_collators[k](v) for k,v in d.items()}
 
 

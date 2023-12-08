@@ -11,11 +11,11 @@ from torch import nn, einsum, Tensor
 from einops import rearrange, repeat, pack, unpack
 
 #from torchmultimodal.utils.common import ModelOutput
-from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
-
+#from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
+from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
 from beartype.typing import Tuple, Optional, Union
 
-from encoders import encoders
+from encoders import encoders_dict
 
 #import torch_xla.core.xla_model as xm
 
@@ -136,10 +136,10 @@ class MFDOOMPretrainingLoss(nn.Module):
     ):
         super().__init__()
         self.modality_names = modality_names
-        self.modality_names.append('fusion')
+        modality_names = self.modality_names + ['fusion']
         #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
-                       for pair in combinations(self.modality_names)}
+                       for pair in combinations(self.modality_names, r=2)}
 
     def forward(
             self,
@@ -158,40 +158,44 @@ class MFDOOMPretrainingLoss(nn.Module):
 class MFDOOM(nn.Module):
     def __init__(
             self,
+            encoder_configs,
             dim,
             depth,
             dim_head=64,
             heads=8,
             ff_mult=4,
             num_fusion_tokens=16,
-            encoder_configs = {},
             batch_size = 8,
+            device = None,
             #ntokens=1024,
-            loss=MFDOOMPretrainingLoss()
 
     ):
         super().__init__()
        
-        self.device = torch.cuda.current_device() #xm.xla_device()
+        self.device = device #xm.xla_device()
         self.batch_size = batch_size
 
-        self.loss = loss
-
+        return_token_types = list(range(len(encoder_configs))) + [-1, -2]
         self.max_return_tokens = len(return_token_types)
         self.return_token_types = return_token_types
-        return_token_types_tensor = torch.tensor(list(map(lambda t: t.value, return_token_types)), device=self.device)
+        return_token_types_tensor = torch.tensor(return_token_types, device=self.device)
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.heads = heads
 
-        self.encoders = {modality_name: encoders[encoder_config['encoder_class']](**encoder_config)
+        self.encoders = {modality_name: encoders_dict[encoder_config['type']](**encoder_config)
                          for modality_name, encoder_config in encoder_configs.items()}
-        self.token_types = list(encoders.keys())
-        self.token_dims = [encoder_configs[token_type]['n_tokens'] for token_type in self.token_types]
+        self.modality_types = list(encoder_configs.keys())
+
+        self.loss = MFDOOMPretrainingLoss(self.modality_types)
+        print(self.loss.losses)
 
         self.num_fusion_tokens = num_fusion_tokens
+        
+        self.token_dims = [encoder_configs[token_type]['max_tokens'] for token_type in self.modality_types]
+        print(f"Token dims without fusions: {sum(self.token_dims)}")
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
         self.fusion_mask = torch.ones(
                 num_fusion_tokens,
@@ -223,11 +227,14 @@ class MFDOOM(nn.Module):
                                 device=device, dtype=torch.long)
 
     def create_zorro_mask(self, token_types):
+        print(token_types.shape)
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         zorro_mask = token_types_attend_from == token_types_attend_to
         zorro_mask = zorro_mask | (token_types_attend_from == self.fusion_token)
         zorro_mask = repeat(zorro_mask, 'j i -> i j')
+        print(zorro_mask.shape)
+        #exit()
         return ~zorro_mask
 
     def create_pooling_mask(self, token_types, return_token_types_tensor):
@@ -240,14 +247,16 @@ class MFDOOM(nn.Module):
 
     def forward(
             self,
-            *,
             batch, #dict like {modality_name: modality_data_dict} batch is first index of each modality
             no_loss = False,
     ):
         # Concatenate samples and prepare attention masks
         batch_size, device = self.batch_size, self.device
         tokens, attention_masks = zip(*[self.encoders[modality_name](batch[modality_name])
-                   for modality_name in self.token_types]) # in case order mixed up
+                   for modality_name in self.modality_types]) # in case order mixed up
+        tokens, attention_masks = list(tokens), list(attention_masks)
+        for token in tokens:
+            print(token.shape)
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
         tokens.append(fusion_tokens)
         tokens, ps = pack(tokens , 'b * d')
@@ -256,7 +265,11 @@ class MFDOOM(nn.Module):
         attention_masks.append(fusion_mask)
         padding, ps = pack(attention_masks, 'b *')
         #padding = ~padding # If The masks are like 1 1 1 0 0 where 1 denotes non-padding
-
+        for k,v in batch.items():
+            for k2,v2 in v.items():
+                print(f"{k}-{k2}-{v2.shape}")
+                
+        print(f"{tokens.shape} - {padding.shape} - {self.zorro_mask.shape}")
         # Run model
         # attend and feedforward
         for layer in self.layers:
