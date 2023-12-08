@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn.functional import pad
 from torch import Tensor
 from typing import Optional
+from einops import repeat
 from einops.layers.torch import Rearrange
 import functools
 import math
@@ -174,15 +175,19 @@ class PatchEncoder(nn.Module):
     def __init__(self,
                  patch_size = (16,16), #2 or 3 dimensions
                  mode="matrix",
-                 num_channels=3, #Only for image or video
+                 num_channels=0, #Only for image or video
                  embedding_dim = 512,
                  max_tokens = 1024,
                  dropout: float = 0.1,
                  attn_mask = True,
+                 pad_token = -10000,
                  **kwargs
                  ):
+        super().__init__()
         self.attn_mask = attn_mask
+        self.pad_token = -10000
         self.dropout = nn.Dropout(p=dropout)
+        self.patch_size = patch_size
         assert mode in ["matrix", "image", "video"] #Matrix is for mostly audio spectrograms
         if mode in ["matrix", "image"]:
             assert len(patch_size) == 2
@@ -190,30 +195,31 @@ class PatchEncoder(nn.Module):
             assert len(patch_size) == 3
         if mode == "matrix":
             input_dim = cum_mul(self.patch_size)
-            rearranger = Rearrange('b (h p1) (w p2) -> b h w (p1 p2)', p1=patch_size[0], p2=patch_size[1]),
+            opstr = 'b (h p1) (w p2) -> b (h w) (p1 p2)'
+            sizes = {f"p{i}":p for i,p in enumerate(patch_size,1)}
         elif mode == "image":
             input_dim = cum_mul(self.patch_size) * num_channels
-            rearranger = Rearrange('b c (h p1) (w p2) -> b h w (c p1 p2)', p1=patch_size[0], p2=patch_size[1]),
+            opstr = 'b c (h p1) (w p2) -> b h w (c p1 p2)'
+            sizes = {f"p{i}":p for i,p in enumerate(patch_size,1)}
         elif mode == "video":
             input_dim = cum_mul(self.patch_size) * num_channels
-            rearranger = Rearrange('b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)',
-                                   p1=patch_size[0], p2=patch_size[1], p3=patch_size[2])
+            opstr = 'b c (t p1) (h p2) (w p3) -> b t h w (c p1 p2 p3)'
+            sizes = {f"p{i}":p for i,p in enumerate(patch_size,1)}
         self.batch_to_tokens = nn.Sequential(
-                rearranger,
+                Rearrange(opstr,**sizes),
                 nn.LayerNorm(input_dim),
                 nn.Linear(input_dim, embedding_dim),
                 nn.LayerNorm(embedding_dim)
             )
-
-        self.index = torch.arange(max_tokens).unsqueeze(1)
+        self.index = torch.arange(max_tokens)
         self.embedding = nn.Embedding(max_tokens, embedding_dim) #max_norm?
 
     def forward(self, batch):
         x_t = self.batch_to_tokens(batch['values']) #Linear projection of each patch
-        x_p = self.embedding(self.index) #Learnable positional embedding
-        #x_p = repeat(x_p, 'i -> b i', b = x_t.shape[0]) #May need to use this if it doesn't broadcast
+        assert x_t.shape[1] == self.index.shape[0]
+        x_p = self.embedding(repeat(self.index, 'l -> b l', b = x_t.shape[0])) #Learnable positional embedding
         x = x_t + x_p
-        attention_mask = torch.all(batch, dim=-1) if self.attn_mask else None
+        attention_mask = torch.all(batch['values']==self.pad_token, dim=-1, dtype=torch.long) if self.attn_mask else None
         return self.dropout(x), attention_mask
 
 # Dictionaries for accessing Encoders and Collators from config
@@ -232,17 +238,18 @@ class SequenceCollator:
     For sparse tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == padded length
     TODO: add truncation
     """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True,  **kwargs):
+    def __init__(self, pad_token=0, pad_len=2048, data_col_name='indices', attn_mask=True,  **kwargs):
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.attn_mask = attn_mask
+        self.data_col_name = data_col_name
 
     def __call__(self, data):
         collated_data = {
-            'indices': [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
-                      for index in data['indices']]}
+            self.data_col_name: [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
+                      for index in data[self.data_col_name]]}
         if self.attn_mask:
-            collated_data['attention_mask'] = [(padded_index == self.pad_token).to(torch.long) for padded_index in padded_indices]
+            collated_data['attention_mask'] = [(padded_index == self.pad_token).to(torch.long) for padded_index in collated_data[self.data_col_name]]
         if 'values' in data.keys():
             collated_data['values'] = [pad(data, (0, self.pad_len-data.shape[-1]), mode='constant', value=0.0)
                             for data in data['values']]
@@ -253,9 +260,10 @@ class MatrixCollator:
     """
     2D matrix collator
     """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=True,  **kwargs):
+    def __init__(self, pad_token=-10000, pad_len=2048, attn_mask=True, max_channels=0, **kwargs):
         self.pad_token = pad_token
         self.pad_len = pad_len
+        self.max_channels = max_channels
         #self.attn_mask = attn_mask
 
     def __call__(self, data):
@@ -263,6 +271,8 @@ class MatrixCollator:
             'values': [pad(x, (0,0,0, self.pad_len - x.shape[0]), mode='constant', value=self.pad_token)
                        for x in data['values']]
         }
+        if self.max_channels:
+            collated_data['values'] = [x[:,:self.max_channels] for x in collated_data['values']]
         return {k: torch.stack(v) for k,v in collated_data.items()}
 
 
@@ -358,6 +368,9 @@ class MultimodalCollator:
 
     def __call__(self, batch):
         assert self.modality_collators.keys() == batch.keys()
+        print(batch)
+        batch = {k2:{k: [dic[k] for dic in v2] for k in v2[0]} for k2,v2 in batch.items()} #TODO Fix this batching
+        #print(batch)
         return {k :self.modality_collators[k](v) for k,v in batch.items()}
 
 
