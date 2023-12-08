@@ -247,15 +247,15 @@ class MFDOOM(nn.Module):
     ):
         # Concatenate samples and prepare attention masks
         batch_size, device = self.batch_size, self.device
-        tokens, attention_masks = [self.encoders[modality_name](batch[modality_name])
-                   for modality_name in self.token_types] # in case order mixed up
+        tokens, attention_masks = zip(*[self.encoders[modality_name](batch[modality_name])
+                   for modality_name in self.token_types]) # in case order mixed up
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
         tokens.append(fusion_tokens)
         tokens, ps = pack(tokens , 'b * d')
 
         fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
-        attention_mask.append(fusion_mask)
-        padding, ps = pack(attention_mask, 'b *')
+        attention_masks.append(fusion_mask)
+        padding, ps = pack(attention_masks, 'b *')
         #padding = ~padding # If The masks are like 1 1 1 0 0 where 1 denotes non-padding
 
         # Run model

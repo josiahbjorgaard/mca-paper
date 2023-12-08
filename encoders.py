@@ -22,7 +22,7 @@ class TokenEncoder(nn.Module):
         embedding_dim: int,
         padding_idx: Optional[int] = None,
         max_norm: Optional[float] = 1.0,
-            **kwargs
+        **kwargs
     ):
         super().__init__()
         self.num_embeddings = num_embeddings #debug
@@ -81,16 +81,16 @@ class TabularEncoder(nn.Module):
                  **kwargs
                  ):
         super().__init__()
-        self.index = torch.arange(num_embeddings).unsqueeze(1)
+        self.index = torch.arange(num_embeddings) #TODO Attention mask
         self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
         self.value_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
 
     def forward(self, batch) -> Tensor:
         x_t = self.token_encoder(self.index)
         x_v = self.value_encoder(batch['values'])
-        #x_t = repeat(x_p, 'i -> b i', b = x_v.shape[0]) #May need to use this if it doesn't broadcast
+        x_t = repeat(x_t, 'i -> b i', b = x_v.shape[0]) #May need to use this if it doesn't broadcast
         x = x_t + x_v
-        return x
+        return x, batch['attention_mask']
 
 
 class SparseTabularEncoder(nn.Module):
@@ -113,7 +113,7 @@ class SparseTabularEncoder(nn.Module):
         x_t = self.token_encoder(index)
         x_v = self.value_encoder(value)
         x = x_t + x_v
-        return x
+        return x, batch['attention_mask']
 
 
 class PositionalEncoder(nn.Module):
@@ -157,10 +157,10 @@ class SequenceEncoder(nn.Module):
         self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
-        x_t = self.token_encoder(batch['token'])
-        x_p = self.positional_encoder(batch['token'])
+        x_t = self.token_encoder(batch['tokens'])
+        x_p = self.positional_encoder(batch['tokens'])
         x = x_t + x_p
-        return x
+        return x, batch['attention_mask']
 
 
 class PatchEncoder(nn.Module):
@@ -357,6 +357,7 @@ collators = {
     'matrix': MatrixCollator,
     'sequence': SequenceCollator
 }
+
 
 class MultimodalCollator:
     """
