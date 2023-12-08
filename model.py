@@ -186,7 +186,6 @@ class MFDOOM(nn.Module):
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.heads = heads
 
-        self.encoders = {}
         self.encoders = {modality_name: encoders[encoder_config['encoder_class']](**encoder_config)
                          for modality_name, encoder_config in encoder_configs.items()}
         self.token_types = list(encoders.keys())

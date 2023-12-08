@@ -88,7 +88,8 @@ class TabularEncoder(nn.Module):
     def forward(self, batch) -> Tensor:
         x_t = self.token_encoder(self.index)
         x_v = self.value_encoder(batch['values'])
-        x_t = repeat(x_t, 'i -> b i', b = x_v.shape[0]) #May need to use this if it doesn't broadcast
+        assert x_v.shape[1] == self.index.shape[0], f"{x_v.shape[1]} - {self.index.shape[0]}"
+        x_t = repeat(x_t, 'i j -> b i j', b = x_v.shape[0]) #May need to use this if it doesn't broadcast
         x = x_t + x_v
         return x, batch['attention_mask']
 
@@ -224,7 +225,7 @@ class PatchEncoder(nn.Module):
         return self.dropout(x), attention_mask
 
 # Dictionaries for accessing Encoders and Collators from config
-encoders = {
+encoders_dict = {
                 "SequenceEncoder": SequenceEncoder,
                 "TabularEncoder": TabularEncoder,
                 "PatchEncoder": PatchEncoder,
