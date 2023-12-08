@@ -144,14 +144,22 @@ class MFDOOMPretrainingLoss(nn.Module):
     def forward(
             self,
             pooled_tokens,
+            sample_mask,
             no_loss = False
     ):
         outputs = {modality_name: pooled_tokens[:,i,:].squeeze(1)
                    for i, modality_name in enumerate(self.modality_names)}
         outputs['global_output'] = pooled_tokens[:,-1, :].squeeze(1)
         if not no_loss:
-            outputs['losses'] = {"_".join(k): self.losses[k](*[outputs[x] for x in k]) for k in self.losses.keys()}
-            outputs['loss'] = torch.sum(torch.tensor(list(outputs['losses'].values))) #Hopefully this works
+            #Need to apply a sample mask for missing modalities
+            # don't compute loss for the pair if one of them is missing
+            outputs['losses']={}
+            for k in self.losses.keys():
+                moda, modb = k
+                mask = sample_mask[moda] * sample_mask[modb]
+                if sum(mask)!=0:
+                    outputs['losses']["_".join(k)] = self.losses[k](outputs[moda][mask],outputs[modb][mask])
+            outputs['loss'] = torch.sum(torch.tensor(list(outputs['losses'].values()))) #Hopefully this works
         return outputs
 
 
@@ -190,14 +198,12 @@ class MFDOOM(nn.Module):
         self.modality_types = list(encoder_configs.keys())
 
         self.loss = MFDOOMPretrainingLoss(self.modality_types)
-        print(self.loss.losses)
 
         self.num_fusion_tokens = num_fusion_tokens
         
         self.token_dims = [encoder_configs[token_type]['max_tokens'] for token_type in self.modality_types]
-        print(f"Token dims without fusions: {sum(self.token_dims)}")
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
-        self.fusion_mask = torch.ones(
+        self.fusion_mask = torch.zeros(
                 num_fusion_tokens,
                 device=self.device
             ).to(torch.bool)
@@ -216,27 +222,22 @@ class MFDOOM(nn.Module):
         self.zorro_mask = self.create_zorro_mask(self.token_types)
         self.pool_mask = self.create_pooling_mask(self.token_types, return_token_types_tensor)
 
-
     def create_token_types_tensor(self,dim_list, num_fusion_tokens, device):
         """
         returns e.g. tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, -1])
         """
-        print(dim_list)
         return torch.tensor([x for y in [[i] * n
                                 for i,n in enumerate(dim_list)]
                                 for x in y]  + [self.fusion_token] * num_fusion_tokens,
                                 device=device, dtype=torch.long)
 
     def create_zorro_mask(self, token_types):
-        print(token_types.shape)
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         zorro_mask = token_types_attend_from == token_types_attend_to
         zorro_mask = zorro_mask | (token_types_attend_from == self.fusion_token)
-        zorro_mask = repeat(zorro_mask, 'j i -> i j')
-        print(zorro_mask.shape)
-        #exit()
-        return ~zorro_mask
+        #zorro_mask = repeat(zorro_mask, 'j i -> i j')
+        return ~zorro_mask #.to(torch.long)
 
     def create_pooling_mask(self, token_types, return_token_types_tensor):
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
@@ -256,8 +257,7 @@ class MFDOOM(nn.Module):
         tokens, attention_masks = zip(*[self.encoders[modality_name](batch[modality_name])
                    for modality_name in self.modality_types]) # in case order mixed up
         tokens, attention_masks = list(tokens), list(attention_masks)
-        for token in tokens:
-            print(token.shape)
+        modality_sample_mask = {k:(x==0).sum(dim=1)!=0 for k,x in zip(self.modality_types,attention_masks)}
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
         tokens.append(fusion_tokens)
         tokens, ps = pack(tokens , 'b * d')
@@ -265,13 +265,6 @@ class MFDOOM(nn.Module):
         fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
         attention_masks.append(fusion_mask)
         padding, ps = pack(attention_masks, 'b *')
-        #padding = ~padding # If The masks are like 1 1 1 0 0 where 1 denotes non-padding
-        for k,v in batch.items():
-            for k2,v2 in v.items():
-                print(f"{k}-{k2}-{v2.shape}")
-                
-        print(f"{tokens.shape} - {padding.shape} - {self.zorro_mask.shape}")
-        # Run model
         # attend and feedforward
         for layer in self.layers:
             tokens = layer(tokens, self.zorro_mask, padding)
@@ -279,5 +272,5 @@ class MFDOOM(nn.Module):
         # pooling
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
         pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
-        loss = self.loss(pooled_tokens, no_loss)
+        loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
         return loss
