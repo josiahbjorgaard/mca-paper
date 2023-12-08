@@ -55,6 +55,9 @@ def restart_cfg(config):
 
 def training_config(filename):
     config = get_cfg_defaults_train()
+    import yaml
+    with open(filename, "r") as stream:
+        print(yaml.safe_load(stream))
     config.merge_from_file(filename)
     #config.freeze()
     return config
