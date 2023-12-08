@@ -197,6 +197,7 @@ class PatchEncoder(nn.Module):
             input_dim = cum_mul(self.patch_size)
             opstr = 'b (h p1) (w p2) -> b (h w) (p1 p2)'
             sizes = {f"p{i}":p for i,p in enumerate(patch_size,1)}
+            self.layer = Rearrange(opstr,**sizes)
         elif mode == "image":
             input_dim = cum_mul(self.patch_size) * num_channels
             opstr = 'b c (h p1) (w p2) -> b h w (c p1 p2)'
@@ -216,10 +217,10 @@ class PatchEncoder(nn.Module):
 
     def forward(self, batch):
         x_t = self.batch_to_tokens(batch['values']) #Linear projection of each patch
-        assert x_t.shape[1] == self.index.shape[0]
+        assert x_t.shape[1] == self.index.shape[0], f"{x_t.shape[1]} - {self.index.shape[0]}"
         x_p = self.embedding(repeat(self.index, 'l -> b l', b = x_t.shape[0])) #Learnable positional embedding
         x = x_t + x_p
-        attention_mask = torch.all(batch['values']==self.pad_token, dim=-1, dtype=torch.long) if self.attn_mask else None
+        attention_mask = torch.all(self.layer(batch['values'])==self.pad_token, dim=-1).to(torch.long) if self.attn_mask else None
         return self.dropout(x), attention_mask
 
 # Dictionaries for accessing Encoders and Collators from config
