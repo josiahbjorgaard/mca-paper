@@ -10,7 +10,7 @@ def get_cfg_defaults_train():
     Default config options for training
     """
     config = CN()
-    config.encoder_configs = {}
+    config.encoder_configs = None #{}
     config.restart = False #'training_output_21_31_23_10_2023'
     config.epochs = 3
     config.batch_size = 2
