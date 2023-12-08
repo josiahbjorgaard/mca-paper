@@ -9,11 +9,11 @@ from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from collections import defaultdict
 
-from multizorromodel import BioZorroWithLeaveOneOut as BioZorro
-from encoders import BioZorroCollator
-from training_utils import get_param_norm, get_grad_norm, count_parameters
-from config_utils import training_config, get_model_config
-from dataset_utils import setup_data
+from model import MFDOOM
+from encoders import MultimodalCollator
+from utils.training import get_param_norm, get_grad_norm, count_parameters
+from utils.config import training_config, get_model_config
+from utils.dataset import setup_data
 
 from accelerate import Accelerator
 
@@ -32,15 +32,15 @@ datasets = setup_data(config.dataset,
                       ds_seed=config.ds_seed)
 
 # BioZorro Collator
-default_data_collator = BioZorroCollator(pad_len=config.pad_len, pad_token=0)
+default_data_collator = MultimodalCollator(pad_len=config.pad_len, pad_token=0)
 model_config = get_model_config(config)
-model = BioZorro(**model_config)
+model = MFDOOM(**model_config)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
 # Initialise your wandb run, passing wandb parameters and any config information
 accelerator.init_trackers(
-    project_name="Multimodal2",
+    project_name="MFDOOM",
     config=dict(config),
     init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
     )

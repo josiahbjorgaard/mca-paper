@@ -176,10 +176,10 @@ class MFDOOM(nn.Module):
             batch_size = 8,
             device = None,
             #ntokens=1024,
-
+            **kwargs
     ):
         super().__init__()
-       
+        print(f"Got kwargs: {kwargs}")
         self.device = device #xm.xla_device()
         self.batch_size = batch_size
 
