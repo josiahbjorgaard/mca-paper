@@ -1,5 +1,5 @@
 encoder_configs:
-  aud: {type: 'PatchEncoder', max_tokens: 320, patch_size: (32,8)}
+  aud: {type: 'PatchEncoder', max_tokens: 320, patch_size: [32,8]}
   en: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 256}
   pt: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 256}
   sm: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 256}
@@ -11,4 +11,7 @@ modality_config:
   sm: {type: 'sequence', pad_len: 256, data_col_name: "tokens"}
   vid: {type: 'sequence', pad_len: 2048}
 num_fusion_tokens: 256
-dataset: "how2_all_proc"
+batch_size: 4
+layers: 7
+epochs: 8
+dataset: "/shared/how2_all_proc"

@@ -135,8 +135,8 @@ class MFDOOMPretrainingLoss(nn.Module):
             modality_names,
     ):
         super().__init__()
-        self.modality_names = modality_names
-        modality_names = self.modality_names + ['fusion']
+        self.modality_names = modality_names + ['fusion']
+        #modality_names = self.modality_names + ['fusion']
         #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
                        for pair in combinations(self.modality_names, r=2)}
@@ -154,12 +154,21 @@ class MFDOOMPretrainingLoss(nn.Module):
             #Need to apply a sample mask for missing modalities
             # don't compute loss for the pair if one of them is missing
             outputs['losses']={}
+            #loss = torch.tensor([0.0])
             for k in self.losses.keys():
                 moda, modb = k
-                mask = sample_mask[moda] * sample_mask[modb]
-                if sum(mask)!=0:
-                    outputs['losses']["_".join(k)] = self.losses[k](outputs[moda][mask],outputs[modb][mask])
-            outputs['loss'] = torch.sum(torch.tensor(list(outputs['losses'].values()))) #Hopefully this works
+                #mask = sample_mask[moda] * sample_mask[modb]
+                #if sum(mask)!=0:
+                #print(outputs[moda].shape)
+                #outputs[moda][mask,:] = outputs[moda][mask,:]*0.0
+                #outputs[modb][mask,:] = outputs[modb][mask,:]*0.0
+                #this_loss =  self.losses[k](outputs[moda][mask],outputs[modb][mask])
+                #else:
+                #    this_loss = torch.tensor([0.0])
+                this_loss = self.losses[k](outputs[moda],outputs[modb])
+                outputs['losses']["_".join(k)] = this_loss
+                #loss += this_loss
+            outputs['loss'] = sum(outputs['losses'].values()) #Hopefully this works
         return outputs
 
 
@@ -174,27 +183,25 @@ class MFDOOM(nn.Module):
             ff_mult=4,
             num_fusion_tokens=16,
             batch_size = 8,
-            device = None,
             #ntokens=1024,
             **kwargs
     ):
         super().__init__()
         print(f"Got kwargs: {kwargs}")
-        self.device = device #xm.xla_device()
         self.batch_size = batch_size
 
         return_token_types = list(range(len(encoder_configs))) + [-1, -2]
         self.max_return_tokens = len(return_token_types)
         self.return_token_types = return_token_types
-        return_token_types_tensor = torch.tensor(return_token_types, device=self.device)
+        return_token_types_tensor = torch.tensor(return_token_types)
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.heads = heads
 
-        self.encoders = {modality_name: encoders_dict[encoder_config['type']](**encoder_config)
-                         for modality_name, encoder_config in encoder_configs.items()}
+        self.encoders = nn.ModuleDict({modality_name: encoders_dict[encoder_config['type']](**encoder_config)
+                         for modality_name, encoder_config in encoder_configs.items()})
         self.modality_types = list(encoder_configs.keys())
 
         self.loss = MFDOOMPretrainingLoss(self.modality_types)
@@ -203,10 +210,9 @@ class MFDOOM(nn.Module):
         
         self.token_dims = [encoder_configs[token_type]['max_tokens'] for token_type in self.modality_types]
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
-        self.fusion_mask = torch.zeros(
+        self.register_buffer('fusion_mask',torch.zeros(
                 num_fusion_tokens,
-                device=self.device
-            ).to(torch.bool)
+            ).to(torch.bool))
         self.fusion_token = -1
         self.global_token = -2
 
@@ -218,18 +224,18 @@ class MFDOOM(nn.Module):
 
         self.norm = LayerNorm(dim)
 
-        self.token_types = self.create_token_types_tensor(self.token_dims, num_fusion_tokens, self.device)
-        self.zorro_mask = self.create_zorro_mask(self.token_types)
-        self.pool_mask = self.create_pooling_mask(self.token_types, return_token_types_tensor)
+        self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
+        self.register_buffer('zorro_mask', self.create_zorro_mask(self.token_types))
+        self.register_buffer('pool_mask', self.create_pooling_mask(self.token_types, return_token_types_tensor))
 
-    def create_token_types_tensor(self,dim_list, num_fusion_tokens, device):
+    def create_token_types_tensor(self,dim_list, num_fusion_tokens):
         """
         returns e.g. tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, -1])
         """
         return torch.tensor([x for y in [[i] * n
                                 for i,n in enumerate(dim_list)]
                                 for x in y]  + [self.fusion_token] * num_fusion_tokens,
-                                device=device, dtype=torch.long)
+                                dtype=torch.long)
 
     def create_zorro_mask(self, token_types):
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
@@ -253,7 +259,7 @@ class MFDOOM(nn.Module):
             no_loss = False,
     ):
         # Concatenate samples and prepare attention masks
-        batch_size, device = self.batch_size, self.device
+        batch_size =  self.batch_size
         tokens, attention_masks = zip(*[self.encoders[modality_name](batch[modality_name])
                    for modality_name in self.modality_types]) # in case order mixed up
         tokens, attention_masks = list(tokens), list(attention_masks)
@@ -265,6 +271,7 @@ class MFDOOM(nn.Module):
         fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
         attention_masks.append(fusion_mask)
         padding, ps = pack(attention_masks, 'b *')
+        padding = padding.to(torch.bool)
         # attend and feedforward
         for layer in self.layers:
             tokens = layer(tokens, self.zorro_mask, padding)

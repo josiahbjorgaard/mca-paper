@@ -82,7 +82,7 @@ class TabularEncoder(nn.Module):
                  **kwargs
                  ):
         super().__init__()
-        self.index = torch.arange(num_embeddings) #TODO Attention mask
+        self.register_buffer('index', torch.arange(num_embeddings)) #TODO Attention mask
         self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
         self.value_encoder = ContinuousValueEncoder(embedding_dim, dropout, max_value, padding_idx)
 
@@ -215,9 +215,8 @@ class PatchEncoder(nn.Module):
                 nn.Linear(input_dim, embedding_dim),
                 nn.LayerNorm(embedding_dim)
             )
-        self.index = torch.arange(max_tokens)
+        self.register_buffer('index', torch.arange(max_tokens))
         self.embedding = nn.Embedding(max_tokens, embedding_dim) #max_norm?
-
     def forward(self, batch):
         x_t = self.batch_to_tokens(batch['values']) #Linear projection of each patch
         assert x_t.shape[1] == self.index.shape[0], f"{x_t.shape[1]} - {self.index.shape[0]}"
@@ -272,7 +271,7 @@ class MatrixCollator:
         #self.attn_mask = attn_mask
 
     def __call__(self, data):
-        data['values'] = [torch.full((self.max_channels,self.pad_len),self.pad_token) if x is None else x for x in data['values']]
+        data['values'] = [torch.full((self.max_channels,self.pad_len),self.pad_token, dtype=torch.float) if x is None else x for x in data['values']]
         collated_data = {
             'values': [pad(x, (0,0,0, self.pad_len - x.shape[0]), mode='constant', value=self.pad_token)
                        for x in data['values']]

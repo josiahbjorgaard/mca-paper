@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from model import MFDOOM
 from encoders import MultimodalCollator
-from utils.training import get_param_norm, get_grad_norm, count_parameters
+from utils.training import get_param_norm, get_grad_norm, count_parameters, move_to
 from utils.config import training_config, get_model_config
 from utils.dataset import setup_data
 
@@ -36,7 +36,7 @@ default_data_collator = MultimodalCollator(config.modality_config)
 model_config = get_model_config(config)
 device = accelerator.device
 
-model = MFDOOM(**model_config, device=device)
+model = MFDOOM(**model_config)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
@@ -48,7 +48,7 @@ accelerator.init_trackers(
     )
 
 # Creating a DataLoader object for iterating over it during the training epochs
-train_dl = DataLoader( datasets["train"], collate_fn=default_data_collator, batch_size=config.batch_size, shuffle=True)
+train_dl = DataLoader( datasets["train"], collate_fn=default_data_collator, batch_size=config.batch_size, shuffle=True, num_workers=8, prefetch_factor=16)
 eval_dl = DataLoader( datasets["test"], collate_fn=default_data_collator, batch_size=config.batch_size)
 
 accelerator.print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
@@ -87,12 +87,12 @@ if config.restart:
 model.train()
 world_size = torch.cuda.device_count()
 for epoch in range(config.epochs):
-    for idb, batch in enumerate(train_dl):
+    for idb, batch in tqdm(enumerate(train_dl)):
         # Training
-        batch = {k: v.to(device) for k, v in batch.items()}
-        outputs = model(**batch)
+        batch = move_to(batch, device)
+        outputs = model(batch)
         optimizer.zero_grad()
-        loss = outputs.loss
+        loss = outputs['loss']
         accelerator.backward(loss)
         optimizer.step()
         lr_scheduler.step()
@@ -103,7 +103,7 @@ for epoch in range(config.epochs):
         if accelerator.is_main_process:
             progress_bar.update(world_size)
         accelerator.log({"total_loss": loss.detach().to("cpu")})
-        accelerator.log({k: v.detach().to("cpu") for k,v in outputs.losses.items()})
+        accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items()})
         accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
                          "grad_norm": get_grad_norm(model).to("cpu")})
         accelerator.log({"lr": optimizer.param_groups[0]['lr']})
@@ -119,7 +119,7 @@ for epoch in range(config.epochs):
             epoch_loss = 0.0
             losses = defaultdict(lambda: torch.Tensor([0.0]).to("cpu"))
             for i, batch in enumerate(tqdm(eval_dl)):
-                outputs = model(**batch)
+                outputs = model(batch)
                 loss = outputs.loss
                 for k, v in outputs.losses.items():
                     losses[k] += v.detach().to("cpu")

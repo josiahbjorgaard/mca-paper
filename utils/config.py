@@ -3,14 +3,16 @@ from datetime import datetime
 import os
 from contextlib import redirect_stdout
 import json
+import yaml
 
 
 def get_cfg_defaults_train():
     """
     Default config options for training
     """
-    config = CN()
-    config.encoder_configs = None #{}
+    config = CN(new_allowed=True)
+    config.encoder_configs = CN(new_allowed=True) #None #{}
+    config.modality_configs = CN(new_allowed=True)
     config.restart = False #'training_output_21_31_23_10_2023'
     config.epochs = 3
     config.batch_size = 2
@@ -55,10 +57,12 @@ def restart_cfg(config):
 
 def training_config(filename):
     config = get_cfg_defaults_train()
-    import yaml
     with open(filename, "r") as stream:
-        print(yaml.safe_load(stream))
-    config.merge_from_file(filename)
+        config_dict = yaml.safe_load(stream)
+    new_config = CN(config_dict)
+    print(new_config)
+    #config.merge_from_file(filename)
+    config.merge_from_other_cfg(new_config)
     #config.freeze()
     return config
 
