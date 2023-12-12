@@ -190,14 +190,25 @@ class MFDOOM(nn.Module):
             num_fusion_tokens=16,
             batch_size = 8,
             return_padding = False,
+            inverse_doom = False,
+            isolated_fusion = True,
             #ntokens=1024,
             **kwargs
     ):
         super().__init__()
         print(f"Got kwargs: {kwargs}")
         self.batch_size = batch_size
-
-        return_token_types = list(range(len(encoder_configs))) + [-1, -2]
+        self.isolated_fusion = isolated_fusion
+        self.inverse_doom = inverse_doom
+        self.fusion_token = -1
+        self.global_token = -2
+        if self.zorro:
+            return_token_types = list(range(len(encoder_configs))) + [self.fusion_token, self.global_token]
+        else: #MFDOOM has extra pooled fusion tokens
+            num_fusion_tokens = len(encoder_configs) + 1
+            return_token_types = list(range(len(encoder_configs))) + \
+                                 [self.fusion_token] * num_fusion_tokens + \
+                                 [self.global_token]
         self.max_return_tokens = len(return_token_types)
         self.return_token_types = return_token_types
         return_token_types_tensor = torch.tensor(return_token_types)
@@ -222,8 +233,7 @@ class MFDOOM(nn.Module):
         self.register_buffer('fusion_mask',torch.zeros(
                 num_fusion_tokens,
             ).to(torch.bool))
-        self.fusion_token = -1
-        self.global_token = -2
+
 
         # transformer
         self.layers = nn.ModuleList([])
@@ -263,16 +273,25 @@ class MFDOOM(nn.Module):
         return ~pool_mask
 
     def create_mfdoom_mask(self, token_types, zorro_mask):
-        # Modal fusion for datasets with only one modality ask
-        #TODO does this work with more than 3 datatypes?
-        mfdoom_mask = [token_types != i for i in range(-1, 3)]
-        if self.isolate_fusion_tokens:
+        """
+        Create the MFDoom mask. Must have num_fusion_tokens//num_modalities == 0
+        """
+        # Modal fusion for datasets with only one modality mask
+        unique_tokens = torch.unique(token_types)
+        assert self.num_fusion_tokens % len(unique_tokens) == 0
+        nsubtok = int(self.num_fusion_tokens / len(unique_tokens))
+        if self.inverse_doom:
+            mfdoom_mask = [token_types == i for i in unique_tokens]
+        else:
+            mfdoom_mask = [token_types != i if i != self.fusion_token else token_types == i for i in unique_tokens]
+        if self.isolated_fusion:
+            fusion_tokens = token_types == self.fusion_token
+            subfusion_tokens = torch.split(fusion_tokens.nonzero(), nsubtok)
             for idx, mfdoom in enumerate(mfdoom_mask):
-                a = self.num_fusion_tokens *(-4+idx)
-                b = self.num_fusion_tokens*(-3+idx)-1
-                mfdoom[-self.num_fusion_tokens*4:] = False
-                mfdoom[a:b]= True
-        mfdoom_mask = repeat(mfdoom_mask, 'i j -> (i i2) j', i2=self.num_fusion_tokens)
+                mfdoom[fusion_tokens] = True
+                mfdoom[subfusion_tokens[idx]] = False
+                mfdoom_mask[idx] = mfdoom
+        mfdoom_mask = repeat(mfdoom_mask, 'i j -> (i i2) j', i2=nsubtok)
         zorro_mask[token_types == self.fusion_token] = mfdoom_mask
         return zorro_mask
 
