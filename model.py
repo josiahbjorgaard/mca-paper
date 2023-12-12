@@ -157,7 +157,12 @@ class MFDOOMPretrainingLoss(nn.Module):
             #loss = torch.tensor([0.0])
             for k in self.losses.keys():
                 moda, modb = k
-                mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
+                if moda == 'fusion':
+                    mask = sample_mask[modb].to(torch.bool)
+                elif modb == 'fusion':
+                    mask = sample_mask[moda].to(torch.bool)
+                else:
+                    mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
                 #if sum(mask)!=0:
                     #print(outputs[moda].shape)
                 #outputs[moda][mask, :] = outputs[moda][mask, :]*0.0
@@ -168,7 +173,8 @@ class MFDOOMPretrainingLoss(nn.Module):
                 this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
                 outputs['losses']["_".join(k)] = this_loss
                 #loss += this_loss
-            outputs['loss'] = sum(outputs['losses'].values()) #Hopefully this works
+            loss_list = [x for x in outputs['losses'].values() if not torch.isnan(x)]
+            outputs['loss'] = sum(loss_list) #Hopefully this works
         return outputs
 
 
@@ -229,7 +235,7 @@ class MFDOOM(nn.Module):
 
         self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
         self.register_buffer('zorro_mask', self.create_zorro_mask(self.token_types))
-        self.register_buffer('pool_mask', self.create_pooling_mask(self.token_types, return_token_types_tensor))
+        self.register_buffer('pool_mask', self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor))
 
     def create_token_types_tensor(self,dim_list, num_fusion_tokens):
         """
