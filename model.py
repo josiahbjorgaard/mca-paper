@@ -173,7 +173,7 @@ class MFDOOMPretrainingLoss(nn.Module):
                 this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
                 outputs['losses']["_".join(k)] = this_loss
                 #loss += this_loss
-            loss_list = [x for x in outputs['losses'].values() if not torch.isnan(x)]
+            loss_list = [torch.nan_to_num(x) for x in outputs['losses'].values()]
             outputs['loss'] = sum(loss_list) #Hopefully this works
         return outputs
 
