@@ -157,12 +157,12 @@ class MFDOOMPretrainingLoss(nn.Module):
             #loss = torch.tensor([0.0])
             for k in self.losses.keys():
                 moda, modb = k
-                #mask = sample_mask[moda] * sample_mask[modb]
+                mask = sample_mask[moda] * sample_mask[modb]
                 #if sum(mask)!=0:
-                #print(outputs[moda].shape)
-                #outputs[moda][mask,:] = outputs[moda][mask,:]*0.0
-                #outputs[modb][mask,:] = outputs[modb][mask,:]*0.0
-                #this_loss =  self.losses[k](outputs[moda][mask],outputs[modb][mask])
+                    #print(outputs[moda].shape)
+                outputs[moda][mask, :] = outputs[moda][mask, :]*0.0
+                outputs[modb][mask, :] = outputs[modb][mask, :]*0.0
+                    #this_loss =  self.losses[k](outputs[moda][mask],outputs[modb][mask])
                 #else:
                 #    this_loss = torch.tensor([0.0])
                 this_loss = self.losses[k](outputs[moda],outputs[modb])
@@ -245,13 +245,36 @@ class MFDOOM(nn.Module):
         #zorro_mask = repeat(zorro_mask, 'j i -> i j')
         return ~zorro_mask #.to(torch.long)
 
-    def create_pooling_mask(self, token_types, return_token_types_tensor):
+    def create_zorro_pooling_mask(self, token_types, return_token_types_tensor):
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         pool_mask = rearrange(return_token_types_tensor, 'i -> i 1') == token_types_attend_to
         # global queries can attend to all tokens
         pool_mask = pool_mask | (rearrange(return_token_types_tensor, 'i -> i 1') == torch.ones_like(
             token_types_attend_to, dtype=torch.long) * self.global_token)
         return ~pool_mask
+
+    def create_mfdoom_mask(self, token_types, zorro_mask):
+        # Modal fusion for datasets with only one modality ask
+        #TODO does this work with more than 3 datatypes?
+        mfdoom_mask = [token_types != i for i in range(-1, 3)]
+        if self.isolate_fusion_tokens:
+            for idx, mfdoom in enumerate(mfdoom_mask):
+                a = self.num_fusion_tokens *(-4+idx)
+                b = self.num_fusion_tokens*(-3+idx)-1
+                mfdoom[-self.num_fusion_tokens*4:] = False
+                mfdoom[a:b]= True
+        mfdoom_mask = repeat(mfdoom_mask, 'i j -> (i i2) j', i2=self.num_fusion_tokens)
+        zorro_mask[token_types == self.fusion_token] = mfdoom_mask
+        return zorro_mask
+
+    def create_mfdoom_pooling_mask(self, token_types, return_token_types_tensor, pool_mask):
+        # MFDOOM pooling mask
+        fusion_blocks = [torch.ones((1, self.num_fusion_tokens)) for _ in range(len(self.modality_types))]
+        mfdoom_pool_mask = torch.block_diag(*fusion_blocks)
+        select_mask = (return_token_types_tensor == self.fusion_token).unsqueeze(1) * \
+                      (token_types == self.fusion_token).unsqueeze(0)
+        pool_mask[select_mask] = mfdoom_pool_mask.to(torch.bool).flatten()
+        return pool_mask
 
     def forward(
             self,
