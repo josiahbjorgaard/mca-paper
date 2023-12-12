@@ -1,17 +1,18 @@
 encoder_configs:
   aud: {type: 'PatchEncoder', max_tokens: 320, patch_size: [32,8]}
-  en: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 256}
-  pt: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 256}
-  sm: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 256}
+  en: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 64}
+  pt: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 64}
+  sm: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 64}
   vid: {type: 'TabularEncoder', num_embeddings: 2048, max_tokens: 2048}
 modality_config:
   aud: {type: 'matrix', pad_len: 2048, max_channels: 40}
-  en: {type: 'sequence', pad_len: 256, data_col_name: "tokens"}
-  pt: {type: 'sequence', pad_len: 256, data_col_name: "tokens"}
-  sm: {type: 'sequence', pad_len: 256, data_col_name: "tokens"}
+  en: {type: 'sequence', pad_len: 64, data_col_name: "tokens"}
+  pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens"}
+  sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens"}
   vid: {type: 'sequence', pad_len: 2048}
 num_fusion_tokens: 256
-batch_size: 4
-layers: 7
+batch_size: 8
+lr: 0.00001
+layers: 5
 epochs: 8
 dataset: "/shared/how2_all_proc"

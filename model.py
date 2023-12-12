@@ -183,6 +183,7 @@ class MFDOOM(nn.Module):
             ff_mult=4,
             num_fusion_tokens=16,
             batch_size = 8,
+            return_padding = False,
             #ntokens=1024,
             **kwargs
     ):
@@ -199,6 +200,8 @@ class MFDOOM(nn.Module):
 
         self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.heads = heads
+
+        self.return_padding=return_padding
 
         self.encoders = nn.ModuleDict({modality_name: encoders_dict[encoder_config['type']](**encoder_config)
                          for modality_name, encoder_config in encoder_configs.items()})
@@ -280,4 +283,7 @@ class MFDOOM(nn.Module):
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
         pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
-        return loss
+        if self.return_padding:
+            return loss, padding
+        else:
+            return loss
