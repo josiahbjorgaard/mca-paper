@@ -3,11 +3,15 @@ from typing import List
 
 import torch
 from torch import Tensor
-#from torch.distributed import all_gather as all_gather_no_backprop
-#from torch.distributed.nn.functional import all_gather as all_gather_with_backprop
-from torch_xla.core.xla_model import all_gather as all_gather_no_backprop
-from torch_xla.core.functions import all_gather as all_gather_with_backprop
-import torch_xla.core.xla_model as xm
+
+# CUDA Version
+from torch.distributed import all_gather as all_gather_no_backprop
+from torch.distributed.nn.functional import all_gather as all_gather_with_backprop
+
+# XLA Version
+#import torch_xla.core.xla_model as xm
+#from torch_xla.core.xla_model import all_gather as all_gather_no_backprop
+#from torch_xla.core.functions import all_gather as all_gather_with_backprop
 
 class BackpropType(Enum):
     """
@@ -36,7 +40,9 @@ def gather_tensor(
     Returns:
         List[Tensor]: List of gathered tensors across all GPUs.
     """
-    world_size = xm.xrt_world_size()
+    #world_size = xm.xrt_world_size()
+    world_size = torch.distributed.get_world_size()
+
     # This uses the all_gather from torch.distributed.nn.functional,
     # which backpropagates gradients to all workers
     if world_size == 1:
@@ -58,6 +64,8 @@ def gather_tensor(
 
 def get_rank() -> int:
     """get rank util for distributed training"""
-    #if torch.distributed.is_available() and torch.distributed.is_initialized():
-    return xm.get_ordinal()
-    #return 0
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank()
+    return 0
+    # XLA Version
+    #return xm.get_ordinal()

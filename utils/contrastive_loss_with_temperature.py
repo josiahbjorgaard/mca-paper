@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 from torchmultimodal.utils.distributed import BackpropType, gather_tensor
 
-import torch_xla.core.xla_model as xm
+#import torch_xla.core.xla_model as xm
 
 @dataclass
 class ContrastiveLossOutput(OrderedDict):

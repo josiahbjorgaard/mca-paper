@@ -157,15 +157,15 @@ class MFDOOMPretrainingLoss(nn.Module):
             #loss = torch.tensor([0.0])
             for k in self.losses.keys():
                 moda, modb = k
-                mask = sample_mask[moda] * sample_mask[modb]
+                mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
                 #if sum(mask)!=0:
                     #print(outputs[moda].shape)
-                outputs[moda][mask, :] = outputs[moda][mask, :]*0.0
-                outputs[modb][mask, :] = outputs[modb][mask, :]*0.0
+                #outputs[moda][mask, :] = outputs[moda][mask, :]*0.0
+                #outputs[modb][mask, :] = outputs[modb][mask, :]*0.0
                     #this_loss =  self.losses[k](outputs[moda][mask],outputs[modb][mask])
                 #else:
                 #    this_loss = torch.tensor([0.0])
-                this_loss = self.losses[k](outputs[moda],outputs[modb])
+                this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
                 outputs['losses']["_".join(k)] = this_loss
                 #loss += this_loss
             outputs['loss'] = sum(outputs['losses'].values()) #Hopefully this works
