@@ -296,13 +296,19 @@ class MFDOOM(nn.Module):
         zorro_mask[token_types == self.fusion_token] = mfdoom_mask
         return zorro_mask
 
-    def create_mfdoom_pooling_mask(self, token_types, return_token_types_tensor, pool_mask):
-        # MFDOOM pooling mask
-        fusion_blocks = [torch.ones((1, self.num_fusion_tokens)) for _ in range(len(self.modality_types))]
+    def create_mfdoom_pooling_mask(self,
+                                   token_types,
+                                   return_token_types_tensor,
+                                   pool_mask):
+        unique_tokens = torch.unique(token_types)
+        assert self.num_fusion_tokens % len(unique_tokens) == 0
+        nsubtok = int(self.num_fusion_tokens / len(unique_tokens))
+        fusion_blocks = [torch.ones((1, nsubtok))
+                         for _ in range(len(unique_tokens))]
         mfdoom_pool_mask = torch.block_diag(*fusion_blocks)
         select_mask = (return_token_types_tensor == self.fusion_token).unsqueeze(1) * \
                       (token_types == self.fusion_token).unsqueeze(0)
-        pool_mask[select_mask] = mfdoom_pool_mask.to(torch.bool).flatten()
+        pool_mask[select_mask] = ~mfdoom_pool_mask.to(torch.bool).flatten()
         return pool_mask
 
     def forward(
