@@ -133,11 +133,14 @@ class MFDOOMPretrainingLoss(nn.Module):
     def __init__(
             self,
             modality_names,
+            do_mse = True,
     ):
         super().__init__()
         self.modality_names = modality_names + ['fusion']
-        #modality_names = self.modality_names + ['fusion']
         #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
+        self.zorro = zorro
+        if self.do_mse:
+            self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
                        for pair in combinations(self.modality_names, r=2)}
 
@@ -149,12 +152,18 @@ class MFDOOMPretrainingLoss(nn.Module):
     ):
         outputs = {modality_name: pooled_tokens[:,i,:].squeeze(1)
                    for i, modality_name in enumerate(self.modality_names)}
+
+        if self.do_mse: #Add extra fusion tokens
+            mlen = len(self.modality_names) #First fusion token is all, the rest are modality-specific
+            for i, modality_name in enumerate([x for x in self.modality_names if x != 'fusion']):
+                assert i+mlen < pooled_tokens.shape[1]
+                outputs[f"fusion_{modality_name}"] = pooled_tokens[:,i+mlen,:].squeeze(1)
+
         outputs['global_output'] = pooled_tokens[:,-1, :].squeeze(1)
         if not no_loss:
             #Need to apply a sample mask for missing modalities
             # don't compute loss for the pair if one of them is missing
             outputs['losses']={}
-            #loss = torch.tensor([0.0])
             for k in self.losses.keys():
                 moda, modb = k
                 if moda == 'fusion':
@@ -163,18 +172,21 @@ class MFDOOMPretrainingLoss(nn.Module):
                     mask = sample_mask[moda].to(torch.bool)
                 else:
                     mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
-                #if sum(mask)!=0:
-                    #print(outputs[moda].shape)
-                #outputs[moda][mask, :] = outputs[moda][mask, :]*0.0
-                #outputs[modb][mask, :] = outputs[modb][mask, :]*0.0
-                    #this_loss =  self.losses[k](outputs[moda][mask],outputs[modb][mask])
-                #else:
-                #    this_loss = torch.tensor([0.0])
                 this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
                 outputs['losses']["_".join(k)] = this_loss
-                #loss += this_loss
+
+            if self.do_mse:
+                for k in self.mse_losses.keys():
+                    mask = sample_mask[k]
+                    this_loss = self.mse_losses[k](outputs['fusion'][mask], outputs[f"fusion_{k}"][mask])
+                    outputs['losses'][f"fusion_{k}"] = this_loss
+
             loss_list = [torch.nan_to_num(x) for x in outputs['losses'].values()]
+            #Zero out NaN losses (batches with all masked samples give NaN)
             outputs['loss'] = sum(loss_list) #Hopefully this works
+
+
+
         return outputs
 
 
