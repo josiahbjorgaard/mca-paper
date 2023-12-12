@@ -192,6 +192,7 @@ class MFDOOM(nn.Module):
             return_padding = False,
             inverse_doom = False,
             isolated_fusion = True,
+            zorro = False,
             #ntokens=1024,
             **kwargs
     ):
@@ -202,12 +203,12 @@ class MFDOOM(nn.Module):
         self.inverse_doom = inverse_doom
         self.fusion_token = -1
         self.global_token = -2
-        if self.zorro:
+        if zorro:
             return_token_types = list(range(len(encoder_configs))) + [self.fusion_token, self.global_token]
         else: #MFDOOM has extra pooled fusion tokens
-            num_fusion_tokens = len(encoder_configs) + 1
+            num_pool_fusion_tokens = len(encoder_configs) + 1
             return_token_types = list(range(len(encoder_configs))) + \
-                                 [self.fusion_token] * num_fusion_tokens + \
+                                 [self.fusion_token] * num_pool_fusion_tokens + \
                                  [self.global_token]
         self.max_return_tokens = len(return_token_types)
         self.return_token_types = return_token_types
