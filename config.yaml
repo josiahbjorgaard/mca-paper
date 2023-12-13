@@ -10,9 +10,11 @@ modality_config:
   pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens"}
   sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens"}
   vid: {type: 'sequence', pad_len: 2048}
-num_fusion_tokens: 256
+num_fusion_tokens: 192
 batch_size: 4
 lr: 0.00001
-layers: 7
-epochs: 8
+layers: 12
+epochs: 32
+inverse_doom: false
+clip: 2.0
 dataset: "/shared/how2_all_proc"

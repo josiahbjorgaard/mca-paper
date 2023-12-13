@@ -138,7 +138,7 @@ class MFDOOMPretrainingLoss(nn.Module):
         super().__init__()
         self.modality_names = modality_names + ['fusion']
         #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
-        self.zorro = zorro
+        self.do_mse = do_mse
         if self.do_mse:
             self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
@@ -179,7 +179,7 @@ class MFDOOMPretrainingLoss(nn.Module):
                 for k in self.mse_losses.keys():
                     mask = sample_mask[k]
                     this_loss = self.mse_losses[k](outputs['fusion'][mask], outputs[f"fusion_{k}"][mask])
-                    outputs['losses'][f"fusion_{k}"] = this_loss
+                    outputs['losses'][f"mse_fusion_{k}"] = this_loss
 
             loss_list = [torch.nan_to_num(x) for x in outputs['losses'].values()]
             #Zero out NaN losses (batches with all masked samples give NaN)
@@ -262,10 +262,9 @@ class MFDOOM(nn.Module):
         pool_mask = self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor)
         if not zorro:
             attn_mask = self.create_mfdoom_mask(self.token_types, attn_mask)
-            pool_mask = self.create_mfdoom_pooling_mask(self.token_types, self.return_tokens_types_tensor, pool_mask)
+            pool_mask = self.create_mfdoom_pooling_mask(self.token_types, return_token_types_tensor, pool_mask)
         self.register_buffer('attn_mask', attn_mask)
         self.register_buffer('pool_mask', pool_mask)
-
 
     def create_token_types_tensor(self,dim_list, num_fusion_tokens):
         """

@@ -94,6 +94,8 @@ for epoch in range(config.epochs):
         optimizer.zero_grad()
         loss = outputs['loss']
         accelerator.backward(loss)
+        if config.clip:
+            accelerator.clip_grad_norm_(model.parameters(), config.clip)
         optimizer.step()
         lr_scheduler.step()
 

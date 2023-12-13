@@ -31,12 +31,15 @@ def get_cfg_defaults_train():
     config.ds_frac = 1.0
     config.ds_seed = 42
     config.seed = 42
+    config.dropout = 0.1
+    config.clip = 0.0
     config.isolate_fusion_tokens = True
     config.pad_len = 1024
     config.model = 3
     config.n_step_checkpoint = 20000
     config.run_eval_loop = True
     config.vocab_size = 20000 #36602
+    config.inverse_doom = False
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
 
@@ -78,7 +81,8 @@ def get_model_config(config):
         "num_fusion_tokens": config.num_fusion_tokens,
         "encoder_configs": config.encoder_configs,
        #"vocab_size": config.vocab_size,
-        "batch_size": config.batch_size
+        "batch_size": config.batch_size,
+        "inverse_doom": config.inverse_doom
     }
     return model_config
 
