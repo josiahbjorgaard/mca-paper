@@ -257,8 +257,15 @@ class MFDOOM(nn.Module):
         self.norm = LayerNorm(dim)
 
         self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
-        self.register_buffer('zorro_mask', self.create_zorro_mask(self.token_types))
-        self.register_buffer('pool_mask', self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor))
+
+        attn_mask = self.create_zorro_mask(self.token_types)
+        pool_mask = self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor)
+        if not zorro:
+            attn_mask = self.create_mfdoom_mask(self.token_types, attn_mask)
+            pool_mask = self.create_mfdoom_pooling_mask(self.token_types, self.return_tokens_types_tensor, pool_mask)
+        self.register_buffer('attn_mask', attn_mask)
+        self.register_buffer('pool_mask', pool_mask)
+
 
     def create_token_types_tensor(self,dim_list, num_fusion_tokens):
         """
@@ -344,7 +351,7 @@ class MFDOOM(nn.Module):
         padding = padding.to(torch.bool)
         # attend and feedforward
         for layer in self.layers:
-            tokens = layer(tokens, self.zorro_mask, padding)
+            tokens = layer(tokens, self.attn_mask, padding)
         tokens = self.norm(tokens)
         # pooling
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
