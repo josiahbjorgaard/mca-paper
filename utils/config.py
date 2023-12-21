@@ -13,13 +13,15 @@ def get_cfg_defaults_train():
     config = CN(new_allowed=True)
     config.encoder_configs = CN(new_allowed=True) #None #{}
     config.modality_configs = CN(new_allowed=True)
-    config.restart = False #'training_output_21_31_23_10_2023'
+    config.restart = "" #'training_output_21_31_23_10_2023'
+    config.wandb_restart = ""
     config.epochs = 3
+    config.start_epoch = 0
     config.batch_size = 2
     config.num_warmup_steps = 3000
     config.lr_scheduler_type = "cosine"
     config.lr = 1e-4
-    config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
+    config.output_dir = "" #datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
     config.hidden_size = 512
     config.layers = 10
     config.heads = 8  # num heads
@@ -57,15 +59,17 @@ def restart_cfg(config):
         config.reset_lr = 0.0001
     return config
 
-
 def training_config(filename):
     config = get_cfg_defaults_train()
     with open(filename, "r") as stream:
         config_dict = yaml.safe_load(stream)
     new_config = CN(config_dict)
+    if not config.output_dir:
+        config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
     print(new_config)
     #config.merge_from_file(filename)
     config.merge_from_other_cfg(new_config)
+    dump_configs(config, config.output_dir)
     #config.freeze()
     return config
 

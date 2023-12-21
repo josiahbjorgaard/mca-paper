@@ -15,6 +15,10 @@ batch_size: 4
 lr: 0.00001
 layers: 12
 epochs: 32
-inverse_doom: false
+start_epoch: 22
+inverse_doom: true
+output_dir: "training_output_22_02_13_12_2023"
+restart: "training_output_22_02_13_12_2023/21"
+restart_wandb: "0l846v73"
 clip: 2.0
 dataset: "/shared/how2_all_proc"

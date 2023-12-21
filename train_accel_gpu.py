@@ -41,10 +41,14 @@ model = MFDOOM(**model_config)
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
 # Initialise your wandb run, passing wandb parameters and any config information
+init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
+if config.restart_wandb:
+    init_kwargs["wandb"]["id"]=config.restart_wandb
+    init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
     project_name="MFDOOM",
     config=dict(config),
-    init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
+    init_kwargs=init_kwargs
     )
 
 # Creating a DataLoader object for iterating over it during the training epochs
@@ -67,7 +71,7 @@ lr_scheduler = get_scheduler(
     )
 
 if accelerator.is_main_process:
-    progress_bar = tqdm(range(num_training_steps))
+    progress_bar = tqdm(range(num_training_steps), initial = config.start_epoch * len(train_dl))
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
@@ -78,15 +82,15 @@ model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
 if config.restart:
     logger.info(f"Loading saved state from {config.restart}")
     accelerator.load_state(config.restart)
-    if config.reset_lr:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = config.reset_lr
+    #if config.reset_lr:
+    #    for param_group in optimizer.param_groups:
+    #        param_group['lr'] = config.reset_lr
 
 # Start model training and defining the training loop
 
 model.train()
 world_size = torch.cuda.device_count()
-for epoch in range(config.epochs):
+for epoch in range(config.start_epoch,config.epochs):
     for idb, batch in tqdm(enumerate(train_dl)):
         # Training
         batch = move_to(batch, device)
