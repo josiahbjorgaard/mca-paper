@@ -129,7 +129,7 @@ for epoch in range(config.start_epoch,config.epochs):
                 loss = outputs['loss']
                 for k, v in outputs['losses'].items():
                     losses[k] += v.detach().to("cpu")
-                    losses["total_loss"] += loss.detach().to("cpu")
+                losses["total_loss"] += loss.detach().to("cpu")
                 accelerator.log({"val_step_total_loss":loss.to("cpu")})
                 accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items()})
             accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items()})
