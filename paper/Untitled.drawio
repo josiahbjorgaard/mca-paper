@@ -1,0 +1,111 @@
+<mxfile host="app.diagrams.net" modified="2023-10-18T20:13:42.665Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36" etag="67ygHtLKvenRbzXMi2Ai" version="22.0.4" type="device">
+  <diagram name="Page-1" id="bML486rBsDk0tpccZKAN">
+    <mxGraphModel dx="1647" dy="869" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-5" value="Trained Velociformer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="570" y="200" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-7" value="Result: Trajeformer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="570" y="370" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-9" value="Pretrained Spliceformer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="330" y="200" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-10" value="Supervised regression" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="330" y="320" width="220" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-13" value="Zorro" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="90" y="200" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-14" value="Self supervised / contrastive loss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="90" y="320" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-16" value="Spliced Embedding" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="150" y="260" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-17" value="Unspliced Embedding" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="210" y="260" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-18" value="Expression Embedding" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="270" y="260" width="45" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-19" value="Global Embedding" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="90" y="260" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-20" value="Spliced Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="120" y="160" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-21" value="Unspliced Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="180" y="160" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-22" value="Expression Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="240" y="160" width="45" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-24" value="Expression Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="480" y="160" width="45" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-25" value="Global Embedding" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="417.5" y="240" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-26" value="Spliced Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="360" y="160" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-27" value="Unspliced Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="417.5" y="160" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-30" value="RNA Velocity" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="417.5" y="280" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-33" value="Stage 1: Pretraining" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="90" y="110" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-34" value="Result: Velociformer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="327.5" y="370" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-36" value="Result: Spliceformer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="90" y="370" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-37" value="Stage 2: Supervised Finetuning" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="330" y="110" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-38" value="Stage 3: Generative Finetuning" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="570" y="110" width="225" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-39" value="Expression Counts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="655" y="160" width="45" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-41" value="RNA Velocity" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="655" y="240" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-44" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=none;fontSize=17;strokeWidth=4;" edge="1" parent="1" source="KnA-eNDxoe2dvFwaCWN6-42" target="KnA-eNDxoe2dvFwaCWN6-39">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="810" y="295" />
+              <mxPoint x="810" y="175" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-42" value="Updated Expression" style="rounded=1;whiteSpace=wrap;html=1;fontSize=8;labelBackgroundColor=none;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="655" y="280" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-45" value="Cell trajectory causal mask loss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;" vertex="1" parent="1">
+          <mxGeometry x="570" y="320" width="220" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-46" value="" style="endArrow=none;html=1;rounded=0;strokeWidth=6;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="90" y="150" as="sourcePoint" />
+            <mxPoint x="800" y="150" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="KnA-eNDxoe2dvFwaCWN6-47" value="" style="endArrow=none;html=1;rounded=0;strokeWidth=6;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="90" y="360" as="sourcePoint" />
+            <mxPoint x="800" y="360" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

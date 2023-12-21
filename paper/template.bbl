@@ -1,0 +1,21 @@
+\begin{thebibliography}{1}
+
+\bibitem{kedzierska2023assessing}
+Kasia~Zofia Kedzierska, Lorin Crawford, Ava~Pardis Amini, and Alex~X Lu.
+\newblock Assessing the limits of zero-shot foundation models in single-cell
+  biology.
+\newblock {\em bioRxiv}, pages 2023--10, 2023.
+
+\bibitem{van2020trajectory}
+Koen Van~den Berge, Hector Roux~de B{\'e}zieux, Kelly Street, Wouter Saelens,
+  Robrecht Cannoodt, Yvan Saeys, Sandrine Dudoit, and Lieven Clement.
+\newblock Trajectory-based differential expression analysis for single-cell
+  sequencing data.
+\newblock {\em Nature communications}, 11(1):1201, 2020.
+
+\bibitem{saelens2019comparison}
+Wouter Saelens, Robrecht Cannoodt, Helena Todorov, and Yvan Saeys.
+\newblock A comparison of single-cell trajectory inference methods.
+\newblock {\em Nature biotechnology}, 37(5):547--554, 2019.
+
+\end{thebibliography}
