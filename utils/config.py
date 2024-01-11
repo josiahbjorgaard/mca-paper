@@ -42,6 +42,7 @@ def get_cfg_defaults_train():
     config.run_eval_loop = True
     config.vocab_size = 20000 #36602
     config.inverse_doom = False
+    config.return_logits = True
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
 
