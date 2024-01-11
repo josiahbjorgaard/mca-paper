@@ -358,7 +358,6 @@ class MFDOOM(nn.Module):
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
         pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
-        outputs = [loss]
         if self.return_padding:
-            outputs.append(padding)
-        return tuple(outputs)
+            loss['padding']=padding
+        return loss
