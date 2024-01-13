@@ -121,12 +121,23 @@ class MFDOOMLayer(nn.Module):
                                           bias=False,
                                           batch_first=True)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
-                 
+        self.norm = LayerNorm(dim)         
     def forward(self, batch, attn_mask=None, padding_mask=None):
-        batch = self.attn(batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask) + batch
-        print(batch.shape)
+        batch = self.norm(batch)
+        batch = self.attn(batch, batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask, need_weights=False)[0] + batch
+        if batch.isnan().sum():
+            print('batch after attn has nan')
+            print(batch.isnan().sum())
+            torch.save(attn_mask, 'attn_mask.pt')
+            torch.save(batch, 'batch.pt')
+            torch.save(padding_mask, 'padding_mask.pt')
+            exit()
         batch = self.ff(batch) + batch
+        print(f"ff,{batch[0,0,:10]}")
         print(batch.shape)
+        if batch.isnan().sum():
+            print(batch.isnan().sum())
+            exit()
         return batch
 
 
@@ -238,7 +249,7 @@ class MFDOOM(nn.Module):
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
         #self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
-        self.attn_pool = nn.MultiheadAttention(dim=embed_dim, num_heads=heads, bias=False, batch_first=True)
+        self.attn_pool = nn.MultiheadAttention(embed_dim=dim, num_heads=heads, bias=False, batch_first=True)
         self.heads = heads
 
         self.return_padding=return_padding
@@ -365,7 +376,10 @@ class MFDOOM(nn.Module):
         tokens = self.norm(tokens)
         # pooling
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
-        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
+        pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding, need_weights=False)[0] + return_tokens
+        if pooled_tokens.isnan().sum():
+            print(pooled_tokens.isnan().sum()/512)
+            exit()
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
         if self.return_padding:
             loss['padding']=padding
