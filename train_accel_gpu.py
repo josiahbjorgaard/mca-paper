@@ -42,8 +42,8 @@ config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summ
 
 # Initialise your wandb run, passing wandb parameters and any config information
 init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
-if config.restart_wandb:
-    init_kwargs["wandb"]["id"]=config.restart_wandb
+if config.wandb_restart:
+    init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
     project_name="MFDOOM",

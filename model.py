@@ -146,7 +146,8 @@ class MFDOOMPretrainingLoss(nn.Module):
         #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
         self.do_mse = do_mse
         if self.do_mse:
-            self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
+            #self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
+            self.mse_losses = {modality_name: ContrastiveLossWithTemperature() for modality_name in modality_names}
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
                        for pair in combinations(self.modality_names, r=2)}
 
@@ -184,7 +185,8 @@ class MFDOOMPretrainingLoss(nn.Module):
             if self.do_mse:
                 for k in self.mse_losses.keys():
                     mask = sample_mask[k]
-                    this_loss = self.mse_losses[k](outputs['fusion'][mask], outputs[f"fusion_{k}"][mask])
+                    #this_loss = self.mse_losses[k](outputs['fusion'][mask], outputs[f"fusion_{k}"][mask])
+                    this_loss = self.mse_losses[k](outputs['fusion'], outputs[f"fusion_{k}"], mask=mask)
                     outputs['losses'][f"mse_fusion_{k}"] = this_loss
 
             loss_list = [torch.nan_to_num(x) for x in outputs['losses'].values()]
