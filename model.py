@@ -115,12 +115,18 @@ class Attention(nn.Module):
 class MFDOOMLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
-        self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        #self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn = nn.MultiheadAttention(embed_dim=dim,
+                                          num_heads=heads,
+                                          bias=False,
+                                          batch_first=True)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
                  
-    def forward(self, batch, zorro_mask=None, padding_mask=None):
-        batch = self.attn(batch, batch, attn_mask=zorro_mask, key_padding_mask=padding_mask) + batch
+    def forward(self, batch, attn_mask=None, padding_mask=None):
+        batch = self.attn(batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask) + batch
+        print(batch.shape)
         batch = self.ff(batch) + batch
+        print(batch.shape)
         return batch
 
 
@@ -229,7 +235,8 @@ class MFDOOM(nn.Module):
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
-        self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        #self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn_pool = nn.MultiheadAttention(dim=embed_dim, num_heads=heads, bias=False, batch_first=True)
         self.heads = heads
 
         self.return_padding=return_padding
