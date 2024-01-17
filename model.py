@@ -143,16 +143,18 @@ class MFDOOMLayer(nn.Module):
         self.num_heads = heads
         self.attn = nn.MultiheadAttention(embed_dim=dim,
                                           num_heads=heads,
-                                          bias=False,
-                                          batch_first=True)
+                                          )
+                                          #bias=False,
+                                          #batch_first=True)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
         self.norm = LayerNorm(dim)         
     
     def forward(self, batch, attn_mask=None, padding_mask=None):
         batch = self.norm(batch)
+        batch = batch.swapaxes(0,1)
         #batch = self.attn(batch, batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask, need_weights=False)[0] + batch
         batch = self.attn(batch, batch, batch, attn_mask=attn_mask_hack(attn_mask, padding_mask, self.num_heads), need_weights=False)[0] + batch
-        
+        batch = batch.swapaxes(0,1)
         if batch.isnan().sum():
             print('batch after attn has nan')
             print(batch.isnan().sum())
@@ -273,7 +275,7 @@ class MFDOOM(nn.Module):
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
         #self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
-        self.attn_pool = nn.MultiheadAttention(embed_dim=dim, num_heads=heads, bias=False, batch_first=True)
+        self.attn_pool = nn.MultiheadAttention(embed_dim=dim, num_heads=heads,) # bias=False, batch_first=True)
         self.heads = heads
 
         self.return_padding=return_padding
@@ -283,7 +285,6 @@ class MFDOOM(nn.Module):
                          for modality_name, encoder_config in encoder_configs.items()})
         self.modality_types = list(encoder_configs.keys())
         
-        print(zorro)
         self.loss = MFDOOMPretrainingLoss(self.modality_types, do_mse = not zorro)
 
         self.num_fusion_tokens = num_fusion_tokens
@@ -403,7 +404,9 @@ class MFDOOM(nn.Module):
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
         pool_mask = pool_mask_hack(self.pool_mask, padding, self.heads)
         #pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding, need_weights=False)[0] + return_tokens
+        return_tokens, tokens = return_tokens.swapaxes(0,1), tokens.swapaxes(0,1)
         pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=pool_mask, need_weights=False)[0] + return_tokens
+        pooled_tokens = pooled_tokens.swapaxes(0,1)
         if pooled_tokens.isnan().sum():
             print(pooled_tokens.isnan().sum()/512)
             print('pooled_nan')
