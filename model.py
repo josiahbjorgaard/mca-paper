@@ -139,22 +139,23 @@ def pool_mask_hack( pool_mask, key_padding_mask, num_heads):
 class MFDOOMLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
-        #self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.num_heads = heads
-        self.attn = nn.MultiheadAttention(embed_dim=dim,
-                                          num_heads=heads,
-                                          )
-                                          #bias=False,
-                                          #batch_first=True)
+        #self.attn = nn.MultiheadAttention(embed_dim=dim,
+        #                                  num_heads=heads,
+        #                                  )
+        #                                  #bias=False,
+        #                                  #batch_first=True)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
         self.norm = LayerNorm(dim)         
     
     def forward(self, batch, attn_mask=None, padding_mask=None):
         batch = self.norm(batch)
-        batch = batch.swapaxes(0,1)
+        batch = self.attn(batch, attn_mask=attn_mask, key_padding_mask = padding_mask) + batch
+        #batch = batch.swapaxes(0,1)
         #batch = self.attn(batch, batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask, need_weights=False)[0] + batch
-        batch = self.attn(batch, batch, batch, attn_mask=attn_mask_hack(attn_mask, padding_mask, self.num_heads), need_weights=False)[0] + batch
-        batch = batch.swapaxes(0,1)
+        #batch = self.attn(batch, batch, batch, attn_mask=attn_mask_hack(attn_mask, padding_mask, self.num_heads), need_weights=False)[0] + batch
+        #batch = batch.swapaxes(0,1)
         if batch.isnan().sum():
             print('batch after attn has nan')
             print(batch.isnan().sum())
@@ -274,8 +275,8 @@ class MFDOOM(nn.Module):
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
         self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
-        #self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
-        self.attn_pool = nn.MultiheadAttention(embed_dim=dim, num_heads=heads,) # bias=False, batch_first=True)
+        self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        #self.attn_pool = nn.MultiheadAttention(embed_dim=dim, num_heads=heads,) # bias=False, batch_first=True)
         self.heads = heads
 
         self.return_padding=return_padding
@@ -402,11 +403,12 @@ class MFDOOM(nn.Module):
         tokens = self.norm(tokens)
         # pooling
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
-        pool_mask = pool_mask_hack(self.pool_mask, padding, self.heads)
+        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
+        #pool_mask = pool_mask_hack(self.pool_mask, padding, self.heads)
         #pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding, need_weights=False)[0] + return_tokens
-        return_tokens, tokens = return_tokens.swapaxes(0,1), tokens.swapaxes(0,1)
-        pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=pool_mask, need_weights=False)[0] + return_tokens
-        pooled_tokens = pooled_tokens.swapaxes(0,1)
+        #return_tokens, tokens = return_tokens.swapaxes(0,1), tokens.swapaxes(0,1)
+        #pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=pool_mask, need_weights=False)[0] + return_tokens
+        #pooled_tokens = pooled_tokens.swapaxes(0,1)
         if pooled_tokens.isnan().sum():
             print(pooled_tokens.isnan().sum()/512)
             print('pooled_nan')
