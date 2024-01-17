@@ -36,6 +36,7 @@ def get_cfg_defaults_train():
     config.dropout = 0.1
     config.clip = 0.0
     config.isolate_fusion_tokens = True
+    config.zorro = False
     config.pad_len = 1024
     config.model = 3
     config.n_step_checkpoint = 20000
@@ -87,7 +88,8 @@ def get_model_config(config):
         "encoder_configs": config.encoder_configs,
        #"vocab_size": config.vocab_size,
         "batch_size": config.batch_size,
-        "inverse_doom": config.inverse_doom
+        "inverse_doom": config.inverse_doom,
+        "zorro": config.zorro
     }
     return model_config
 

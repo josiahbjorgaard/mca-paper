@@ -18,6 +18,7 @@ layers: 4 #12
 epochs: 32
 #start_epoch: 22
 inverse_doom: false #false
+zorro: true
 #output_dir: "training_output_22_02_13_12_2023"
 #restart: "training_output_22_02_13_12_2023/21"
 #restart_wandb: "0l846v73"

@@ -111,20 +111,48 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+def attn_mask_hack( attn_mask, key_padding_mask, num_heads):
+    # This is a hack for a bug in MHA https://github.com/pytorch/pytorch/issues/41508
+    # Combines padding mask into attn mask and adds token-wise self attention to prevent NaNs
+    batch, n_tok = key_padding_mask.shape[0], key_padding_mask.shape[1]
+    device = key_padding_mask.device
+    p=key_padding_mask.unsqueeze(1).repeat(1,n_tok,1)
+    z=attn_mask.unsqueeze(0).repeat(batch,1,1)
+    attn_mask = (z | p) & ~torch.eye(n_tok,n_tok, device=device).to(torch.bool)
+    attn_mask = torch.repeat_interleave(attn_mask, num_heads, dim=0)
+    return attn_mask
+
+def pool_mask_hack( pool_mask, key_padding_mask, num_heads):
+    # This is a hack for a bug in MHA https://github.com/pytorch/pytorch/issues/41508
+    # Combines padding mask into pool mask and adds cross attention that's later masked to prevent NaNs
+    batch, n_tok = key_padding_mask.shape[0], pool_mask.shape[0]
+    device = key_padding_mask.device
+    p=key_padding_mask.unsqueeze(1).repeat(1,n_tok,1)
+    z=pool_mask.unsqueeze(0).repeat(batch,1,1)
+    attn_mask = (z | p)
+    fill_masked_later = torch.all(attn_mask,dim=2).unsqueeze(2).repeat(1,1,key_padding_mask.shape[1])
+    attn_mask = attn_mask ^ fill_masked_later
+    attn_mask = torch.repeat_interleave(attn_mask, num_heads, dim=0)
+    return attn_mask
+
 # attention
 class MFDOOMLayer(nn.Module):
     def __init__(self, dim, dim_head, heads, ff_mult):
         super().__init__()
         #self.attn = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.num_heads = heads
         self.attn = nn.MultiheadAttention(embed_dim=dim,
                                           num_heads=heads,
                                           bias=False,
                                           batch_first=True)
         self.ff = FeedForward(dim=dim, mult=ff_mult)
         self.norm = LayerNorm(dim)         
+    
     def forward(self, batch, attn_mask=None, padding_mask=None):
         batch = self.norm(batch)
-        batch = self.attn(batch, batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask, need_weights=False)[0] + batch
+        #batch = self.attn(batch, batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask, need_weights=False)[0] + batch
+        batch = self.attn(batch, batch, batch, attn_mask=attn_mask_hack(attn_mask, padding_mask, self.num_heads), need_weights=False)[0] + batch
+        
         if batch.isnan().sum():
             print('batch after attn has nan')
             print(batch.isnan().sum())
@@ -133,11 +161,6 @@ class MFDOOMLayer(nn.Module):
             torch.save(padding_mask, 'padding_mask.pt')
             exit()
         batch = self.ff(batch) + batch
-        print(f"ff,{batch[0,0,:10]}")
-        print(batch.shape)
-        if batch.isnan().sum():
-            print(batch.isnan().sum())
-            exit()
         return batch
 
 
@@ -150,13 +173,15 @@ class MFDOOMPretrainingLoss(nn.Module):
     def __init__(
             self,
             modality_names,
-            do_mse = True,
+            do_mse,
     ):
         super().__init__()
         self.modality_names = modality_names + ['fusion']
         #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
         self.do_mse = do_mse
         if self.do_mse:
+            print("Doing MSE")
+            exit()
             #self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
             self.mse_losses = {modality_name: ContrastiveLossWithTemperature() for modality_name in modality_names}
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
@@ -258,8 +283,9 @@ class MFDOOM(nn.Module):
         self.encoders = nn.ModuleDict({modality_name: encoders_dict[encoder_config['type']](**encoder_config)
                          for modality_name, encoder_config in encoder_configs.items()})
         self.modality_types = list(encoder_configs.keys())
-
-        self.loss = MFDOOMPretrainingLoss(self.modality_types)
+        
+        print(zorro)
+        self.loss = MFDOOMPretrainingLoss(self.modality_types, do_mse = not zorro)
 
         self.num_fusion_tokens = num_fusion_tokens
         
@@ -376,9 +402,12 @@ class MFDOOM(nn.Module):
         tokens = self.norm(tokens)
         # pooling
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
-        pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding, need_weights=False)[0] + return_tokens
+        pool_mask = pool_mask_hack(self.pool_mask, padding, self.heads)
+        #pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding, need_weights=False)[0] + return_tokens
+        pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=pool_mask, need_weights=False)[0] + return_tokens
         if pooled_tokens.isnan().sum():
             print(pooled_tokens.isnan().sum()/512)
+            print('pooled_nan')
             exit()
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
         if self.return_padding:
