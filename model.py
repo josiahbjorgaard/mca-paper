@@ -181,7 +181,6 @@ class MFDOOMPretrainingLoss(nn.Module):
         self.do_mse = do_mse
         if self.do_mse:
             print("Doing MSE")
-            exit()
             #self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
             self.mse_losses = {modality_name: ContrastiveLossWithTemperature() for modality_name in modality_names}
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
