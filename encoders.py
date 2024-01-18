@@ -127,19 +127,17 @@ class PositionalEncoder(nn.Module):
         div_term = torch.exp(
             torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
         )
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        pe = torch.zeros(max_len, d_model)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
         self.register_buffer("pe", pe)
 
     def forward(self, x: Tensor) -> Tensor:
         """
         Args:
-            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
-        #x = x + self.pe[: x.size(0)]
-        #return self.dropout(x)
-        return self.dropout(self.pe[: x.size(0)])
+        return self.dropout(self.pe[: x.size(1)].repeat(x.size(0), 1, 1))
 
 
 class SequenceEncoder(nn.Module):
