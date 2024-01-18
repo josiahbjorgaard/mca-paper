@@ -75,8 +75,6 @@ class Attention(nn.Module):
         self.heads = heads
         inner_dim = dim_head * heads
 
-        self.norm = LayerNorm(dim)
-
         self.to_q = nn.Linear(dim, inner_dim, bias=False)
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias=False)
         self.to_out = nn.Linear(inner_dim, dim, bias=False)
@@ -87,8 +85,8 @@ class Attention(nn.Module):
             context=None,
             attn_mask=None,
             key_padding_mask=None,
+            return_attn=False
     ):
-        x = self.norm(x)
         kv_x = default(context, x)
 
         q, k, v = (self.to_q(x), *self.to_kv(kv_x).chunk(2, dim=-1))
@@ -103,13 +101,17 @@ class Attention(nn.Module):
         if exists(key_padding_mask):
             key_padding_mask = repeat(key_padding_mask, "b i -> b h j i", h=self.heads, j=sim.shape[-2])
             sim = sim.masked_fill(key_padding_mask, -torch.finfo(sim.dtype).max)
-
+        
         attn = sim.softmax(dim=-1)
-
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-
+        
+        out = einsum('b h i j, b h j d -> b h i d', attn, v) #j is number of toks
         out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
+        
+        if return_attn:
+            return self.to_out(out), attn
+        else:
+            return self.to_out(out)
+
 
 def attn_mask_hack( attn_mask, key_padding_mask, num_heads):
     # This is a hack for a bug in MHA https://github.com/pytorch/pytorch/issues/41508
@@ -156,13 +158,7 @@ class MFDOOMLayer(nn.Module):
         #batch = self.attn(batch, batch, batch, attn_mask=attn_mask, key_padding_mask=padding_mask, need_weights=False)[0] + batch
         #batch = self.attn(batch, batch, batch, attn_mask=attn_mask_hack(attn_mask, padding_mask, self.num_heads), need_weights=False)[0] + batch
         #batch = batch.swapaxes(0,1)
-        if batch.isnan().sum():
-            print('batch after attn has nan')
-            print(batch.isnan().sum())
-            torch.save(attn_mask, 'attn_mask.pt')
-            torch.save(batch, 'batch.pt')
-            torch.save(padding_mask, 'padding_mask.pt')
-            exit()
+        batch = self.norm(batch)
         batch = self.ff(batch) + batch
         return batch
 
@@ -392,28 +388,16 @@ class MFDOOM(nn.Module):
         fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
         tokens.append(fusion_tokens)
         tokens, ps = pack(tokens , 'b * d')
-
         fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
         attention_masks.append(fusion_mask)
         padding, ps = pack(attention_masks, 'b *')
         padding = padding.to(torch.bool)
         # attend and feedforward
         for layer in self.layers:
-            tokens = layer(tokens, self.attn_mask, padding)
-        tokens = self.norm(tokens)
+            tokens = layer(tokens, self.attn_mask) #, padding)
         # pooling
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
-        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
-        #pool_mask = pool_mask_hack(self.pool_mask, padding, self.heads)
-        #pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding, need_weights=False)[0] + return_tokens
-        #return_tokens, tokens = return_tokens.swapaxes(0,1), tokens.swapaxes(0,1)
-        #pooled_tokens = self.attn_pool(return_tokens, tokens, tokens, attn_mask=pool_mask, need_weights=False)[0] + return_tokens
-        #pooled_tokens = pooled_tokens.swapaxes(0,1)
-        if pooled_tokens.isnan().sum():
-            print(pooled_tokens.isnan().sum()/512)
-            print('pooled_nan')
-            exit()
+        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask) + return_tokens #, key_padding_mask = padding) + return_tokens
+        tokens = self.norm(pooled_tokens)
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
-        if self.return_padding:
-            loss['padding']=padding
-        return loss
+        return loss, padding, self.attn_mask, return_tokens
