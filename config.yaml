@@ -9,7 +9,7 @@ modality_config:
   en: {type: 'sequence', pad_len: 64, data_col_name: "tokens", dropout: 0.8, padding:{'tokens': 0, 'attention_mask': 1}}
   pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens", dropout: 0.8, padding:{'tokens': 0, 'attention_mask': 1}}
   sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens", dropout: 0.8, padding:{'tokens': 0, 'attention_mask': 1}}
-  vid: {type: 'sequence', pad_len: 2048, dropout: 0.8, padding: {'indices': 0, 'values': 0, 'attention_mask': 1}}
+  vid: {type: 'sequence', pad_len: 2048, dropout: 0.8, padding: {'indices': -1, 'values': 0, 'attention_mask': 1}}
 num_fusion_tokens: 192
 ds_frac: 0.1
 batch_size: 8
