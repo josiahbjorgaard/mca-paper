@@ -218,12 +218,14 @@ class MFDOOMPretrainingLoss(nn.Module):
                     this_loss = self.mse_losses[k](outputs['fusion'], outputs[f"fusion_{k}"], mask=mask)
                     outputs['losses'][f"mse_fusion_{k}"] = this_loss
 
-            loss_list = [torch.nan_to_num(x) for x in outputs['losses'].values()]
-            #Zero out NaN losses (batches with all masked samples give NaN)
-            outputs['loss'] = sum(loss_list) #Hopefully this works
-
-
-
+            # Zero out NaN losses (batches with all masked samples give NaN) and average
+            loss_tensor = torch.cat([x for x in outputs['losses'].values()])
+            loss_mask = ~torch.isnan(loss_tensor)
+            nl = torch.sum(loss_mask).to(torch.float)
+            if nl == 0.0:
+                outputs['loss']=0.0
+            else:
+                outputs['loss'] = torch.sum(loss_tensor[loss_mask])/nl
         return outputs
 
 
