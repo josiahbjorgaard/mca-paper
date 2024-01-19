@@ -40,6 +40,7 @@ device = accelerator.device
 # Metrics config
 metrics_alignment = {k: Alignment() for k in config.modality_config.keys()}
 metrics_uniformity = {k: Uniformity() for k in config.modality_config.keys()}
+metrics_uniformity['fusion'] = Uniformity() #add fusion token
 
 # Model
 model = MFDOOM(**model_config)
@@ -135,16 +136,24 @@ for epoch in range(config.start_epoch,config.epochs):
                 loss = outputs['loss']
                 for k, v in outputs['losses'].items():
                     losses[k] += v.detach().to("cpu")
+
                 # Embedding space metrics
                 for k in metrics_uniformity.keys():
-                    metrics_uniformity[k].update(losses[k].detach().to('cpu'))
+                    if k != 'fusion':
+                        sample_mask = losses['modality_sample_mask'][k]
+                        metrics_uniformity[k].update(losses[k][sample_mask].detach().to('cpu'))
+                    else:
+                        metrics_uniformity[k].update(losses[k].detach().to('cpu'))
                 for k in metrics_alignment.keys():
-                    metrics_alignment[k].update(losses[k].detach().to('cpu'), losses['fusion'].detach().to('cpu'))
+                    sample_mask = losses['modality_sample_mask'][k]
+                    metrics_alignment[k].update(losses[k][sample_mask].detach().to('cpu'),
+                                                losses['fusion'][sample_mask].detach().to('cpu'))
 
+                #Step Log
                 losses["total_loss"] += loss.detach().to("cpu")
                 accelerator.log({"val_step_total_loss":loss.to("cpu")})
                 accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items()})
-
+            #Epoch Log
             accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items()})
             accelerator.log({'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()})
             accelerator.log({'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()})
