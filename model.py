@@ -1,7 +1,3 @@
-#from enum import Enum
-
-#from dataclasses import dataclass, field
-
 from itertools import combinations
 
 import torch
@@ -13,7 +9,6 @@ from einops import rearrange, repeat, pack, unpack
 #from torchmultimodal.utils.common import ModelOutput
 #from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
 from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
-from beartype.typing import Tuple, Optional, Union
 
 from encoders import encoders_dict
 
