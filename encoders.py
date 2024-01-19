@@ -394,19 +394,18 @@ class MultimodalCollator:
         self.modality_dropout = {modality_name: BatchDropout(config['padding'], config['dropout']) if config['dropout'] else None
                                    for modality_name, config in modality_config.items()}
 
+        print(self.modality_dropout)
+
     def __call__(self, batch):
         assert self.modality_collators.keys() <= batch[0].keys(), f"{self.modality_collators.keys()} - {batch[0].keys()}"
-        #batch = {k2:{k: [dic[k] for dic in v2[0]] for k in v2} for k2,v2 in batch.items()} #TODO Fix this batching
-        #return batch
         d = defaultdict(lambda: defaultdict(list))
         for b in batch:
             for k in self.modality_collators.keys():
                 v = b[k]
-                for k2,v2 in v.items():
+                for k2, v2 in v.items():
                     d[k][k2].append(v2)
-        #batch = {k2:{k: [dic[k] for dic in v2] for k in v2.keys()} for k2,v2 in batch[0].items()}
-        batch = {k : self.modality_collators[k](v) for k,v in d.items()} #Collate
-        batch = {k : self.modality_dropout[k](v) if self.modality_dropout[k] else v for k,v in batch.items()} #Dropout
+        batch = {k: self.modality_collators[k](v) for k, v in d.items()} #Collate
+        batch = {k: self.modality_dropout[k](v) if self.modality_dropout[k] else v for k, v in batch.items()} #Dropout
         return batch
 
 
