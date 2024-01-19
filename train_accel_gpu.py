@@ -14,6 +14,7 @@ from encoders import MultimodalCollator
 from utils.training import get_param_norm, get_grad_norm, count_parameters, move_to
 from utils.config import training_config, get_model_config
 from utils.dataset import setup_data
+from utils.metrics import Alignment, Uniformity
 
 from accelerate import Accelerator
 
@@ -36,6 +37,11 @@ default_data_collator = MultimodalCollator(config.modality_config)
 model_config = get_model_config(config)
 device = accelerator.device
 
+# Metrics config
+metrics_alignment = {k: Alignment() for k in config.modality_config.keys()}
+metrics_uniformity = {k: Uniformity() for k in config.modality_config.keys()}
+
+# Model
 model = MFDOOM(**model_config)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
@@ -129,11 +135,23 @@ for epoch in range(config.start_epoch,config.epochs):
                 loss = outputs['loss']
                 for k, v in outputs['losses'].items():
                     losses[k] += v.detach().to("cpu")
+                # Embedding space metrics
+                for k in metrics_uniformity.keys():
+                    metrics_uniformity[k].update(losses[k].detach().to('cpu'))
+                for k in metrics_alignment.keys():
+                    metrics_alignment[k].update(losses[k].detach().to('cpu'), losses['fusion'].detach().to('cpu'))
+
                 losses["total_loss"] += loss.detach().to("cpu")
                 accelerator.log({"val_step_total_loss":loss.to("cpu")})
                 accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items()})
-            accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items()})
 
+            accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items()})
+            accelerator.log({'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()})
+            accelerator.log({'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()})
+            for v in metrics_uniformity.values():
+                v.reset()
+            for v in metrics_alignment.values():
+                v.reset()
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 accelerator.save_model(model, config.output_dir, safe_serialization=True)

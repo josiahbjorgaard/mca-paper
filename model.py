@@ -195,7 +195,7 @@ class MFDOOMPretrainingLoss(nn.Module):
                 assert i+mlen < pooled_tokens.shape[1]
                 outputs[f"fusion_{modality_name}"] = pooled_tokens[:,i+mlen,:].squeeze(1)
 
-        outputs['global_output'] = pooled_tokens[:,-1, :].squeeze(1)
+        outputs['global_output'] = pooled_tokens[:, -1, :].squeeze(1)
         if not no_loss:
             #Need to apply a sample mask for missing modalities
             # don't compute loss for the pair if one of them is missing
@@ -213,7 +213,9 @@ class MFDOOMPretrainingLoss(nn.Module):
 
             if self.do_mse:
                 for k in self.mse_losses.keys():
-                    mask = sample_mask[k]
+                    # k is the modality name that is missing for inverse doom
+                    # k is the only modality for doom
+                    #mask = sample_mask[k]
                     #this_loss = self.mse_losses[k](outputs['fusion'][mask], outputs[f"fusion_{k}"][mask])
                     this_loss = self.mse_losses[k](outputs['fusion'], outputs[f"fusion_{k}"], mask=mask)
                     outputs['losses'][f"mse_fusion_{k}"] = this_loss
@@ -398,4 +400,5 @@ class MFDOOM(nn.Module):
         tokens = self.norm(tokens)
         pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
-        return loss
+        loss['modality_sample_mask']=modality_sample_mask
+        return loss #Includes outputs and sample mask
