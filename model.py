@@ -394,10 +394,9 @@ class MFDOOM(nn.Module):
         padding = padding.to(torch.bool)
         # attend and feedforward
         for layer in self.layers:
-            tokens = layer(tokens, self.attn_mask) #, padding)
-        # pooling
+            tokens = layer(tokens, self.attn_mask, padding)
         return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
-        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask) + return_tokens #, key_padding_mask = padding) + return_tokens
-        tokens = self.norm(pooled_tokens)
+        tokens = self.norm(tokens)
+        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
-        return loss, padding, self.attn_mask, return_tokens
+        return loss
