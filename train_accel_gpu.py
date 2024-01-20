@@ -140,14 +140,14 @@ for epoch in range(config.start_epoch,config.epochs):
                 # Embedding space metrics
                 for k in metrics_uniformity.keys():
                     if k != 'fusion':
-                        sample_mask = losses['modality_sample_mask'][k]
-                        metrics_uniformity[k].update(losses[k][sample_mask].detach().to('cpu'))
+                        sample_mask = outputs['modality_sample_mask'][k]
+                        metrics_uniformity[k].update(outputs[k][sample_mask]) #.detach().to('cpu'))
                     else:
-                        metrics_uniformity[k].update(losses[k].detach().to('cpu'))
+                        metrics_uniformity[k].update(outputs[k]) #.detach().to('cpu'))
                 for k in metrics_alignment.keys():
-                    sample_mask = losses['modality_sample_mask'][k]
-                    metrics_alignment[k].update(losses[k][sample_mask].detach().to('cpu'),
-                                                losses['fusion'][sample_mask].detach().to('cpu'))
+                    sample_mask = outputs['modality_sample_mask'][k]
+                    metrics_alignment[k].update(outputs[k][sample_mask],#.detach().to('cpu'),
+                                                outputs['fusion'][sample_mask]) #.detach().to('cpu'))
 
                 #Step Log
                 losses["total_loss"] += loss.detach().to("cpu")

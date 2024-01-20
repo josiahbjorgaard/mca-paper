@@ -1,7 +1,9 @@
 import torch
 from torch import Tensor
 from torchmetrics import Metric
-from torchmetrics.utilities import dim_zero_cat
+from torchmetrics.utilities.data import dim_zero_cat
+
+#from torchmetrics.utilities import dim_zero_cat
 
 # Below is directly from Wang and Isola 2021 Understanding Contrastive Rep Learning...
 
