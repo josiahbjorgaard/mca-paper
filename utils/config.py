@@ -13,6 +13,7 @@ def get_cfg_defaults_train():
     config = CN(new_allowed=True)
     config.encoder_configs = CN(new_allowed=True) #None #{}
     config.modality_configs = CN(new_allowed=True)
+    config.predrop = False
     config.restart = "" #'training_output_21_31_23_10_2023'
     config.wandb_restart = ""
     config.epochs = 3

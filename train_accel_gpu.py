@@ -27,10 +27,13 @@ logger = logging.getLogger(__name__)
 
 torch.manual_seed(0)
 
+
 datasets = setup_data(config.dataset,
                       split=config.split,
                       ds_frac=config.ds_frac,
-                      ds_seed=config.ds_seed)
+                      ds_seed=config.ds_seed,
+                      predrop=config.predrop,
+                      predrop_config=config.modality_config)
 
 # Collator
 default_data_collator = MultimodalCollator(config.modality_config)

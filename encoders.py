@@ -8,6 +8,7 @@ from einops.layers.torch import Rearrange
 import functools
 import math
 from collections import defaultdict
+from utils.dataset import BatchDropout
 
 def cum_mul(it):
     return functools.reduce(lambda x, y: x * y, it, 1)
@@ -360,28 +361,6 @@ collators = {
     'sequence': SequenceCollator
 }
 
-class BatchDropout:
-    def __init__(self, kvs = {"attention_mask": 1, "tokens": 0}, dropout=0.1):
-        """
-        Sets values of a batch mode (a dict of tensors) to constant values
-        The constant values can be the padding key and attention mask value
-        """
-        assert len(kvs) > 0
-        self.kvs = kvs
-        self.dropout = dropout
-
-    def __call__(self, batch_mode):
-        assert self.kvs.keys() == batch_mode.keys(), print(f"Input {self.kvs.keys()} not all in {batch_mode.keys()}")
-        nb = [batch_mode[k].shape[0] for k in self.kvs.keys()][0]
-        sz = int((nb*self.dropout))
-        if self.dropout == 1.0:
-            assert sz == nb
-        idx = torch.randperm(nb)[:sz]
-        #batch_mode[k] = torch.full_like(batch_mode[k])
-        for k, v in self.kvs.items():
-            batch_mode[k].index_fill_(0, idx, v)
-        return batch_mode
-
 
 class MultimodalCollator:
     """
@@ -391,11 +370,9 @@ class MultimodalCollator:
     def __init__(self, modality_config, **kwargs):
         self.modality_collators = {modality_name: collators[config['type']](**config)
                                    for modality_name, config in modality_config.items()}
-
         self.modality_dropout = {modality_name: BatchDropout(config['padding'], config['dropout']) if config['dropout'] else None
-                                   for modality_name, config in modality_config.items()}
+                                       for modality_name, config in modality_config.items() if not config['predrop']}
 
-        print(self.modality_dropout)
 
     def __call__(self, batch):
         assert self.modality_collators.keys() <= batch[0].keys(), f"{self.modality_collators.keys()} - {batch[0].keys()}"
