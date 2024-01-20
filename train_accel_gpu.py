@@ -158,8 +158,13 @@ for epoch in range(config.start_epoch,config.epochs):
                 accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items()})
             #Epoch Log
             accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items()})
-            accelerator.log({'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()})
-            accelerator.log({'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()})
+            uniformity = {'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
+            accelerator.log(uniformity)
+            alignment = {'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()}
+            accelerator.log(alignment)
+            accelerator.log({'val_epoch_unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
+            accelerator.log({'val_epoch_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
+
             for v in metrics_uniformity.values():
                 v.reset()
             for v in metrics_alignment.values():

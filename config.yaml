@@ -22,7 +22,7 @@ batch_size: 8
 lr: 0.00001
 layers: 4 #12
 lr_scheduler_type: "constant_with_warmup"
-epochs: 32
+epochs: 64
 #start_epoch: 22
 inverse_doom: true 
 zorro: true
