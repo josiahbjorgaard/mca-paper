@@ -5,24 +5,19 @@ encoder_configs:
   sm: {type: 'SequenceEncoder', num_embeddings: 8192, max_tokens: 64}
   vid: {type: 'TabularEncoder', num_embeddings: 2048, max_tokens: 2048, padding_idx: -1}
 modality_config:
-  aud: {type: 'matrix', pad_len: 2048, max_channels: 40,
-        dropout: 0.3, predrop:true, padding:{'values': -10000}}
-  en: {type: 'sequence', pad_len: 64, data_col_name: "tokens",
-       dropout: 0.3, predrop:true, padding:{'tokens': 0, 'attention_mask': 1}}
-  pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens",
-       dropout: 0.3, predrop:true, padding:{'tokens': 0, 'attention_mask': 1}}
-  sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens",
-       dropout: 0.3, predrop:true, padding:{'tokens': 0, 'attention_mask': 1}}
-  vid: {type: 'sequence', pad_len: 2048,
-        dropout: 0.3, predrop:true, padding: {'indices': -1, 'values': 0, 'attention_mask': 1}}
+  aud: {type: 'matrix', pad_len: 2048, max_channels: 40,}
+  en: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
+  pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
+  sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
+  vid: {type: 'sequence', pad_len: 2048,}
 num_fusion_tokens: 192
-ds_frac: 0.01
-predrop: true
+ds_frac: 0.2
+predrop: false
 batch_size: 8
 lr: 0.00001
 layers: 4 #12
 lr_scheduler_type: "constant_with_warmup"
-epochs: 64
+epochs: 128
 #start_epoch: 22
 inverse_doom: true 
 zorro: true
@@ -30,4 +25,4 @@ zorro: true
 #restart: "training_output_22_02_13_12_2023/21"
 #restart_wandb: "0l846v73"
 clip: 2.0
-dataset: "/shared/how2_all_proc"
+dataset: "/shared/how2_all_proc_90p"

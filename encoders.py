@@ -370,8 +370,8 @@ class MultimodalCollator:
     def __init__(self, modality_config, **kwargs):
         self.modality_collators = {modality_name: collators[config['type']](**config)
                                    for modality_name, config in modality_config.items()}
-        self.modality_dropout = {modality_name: BatchDropout(config['padding'], config['dropout']) if config['dropout'] else None
-                                       for modality_name, config in modality_config.items() if not config['predrop']}
+        #self.modality_dropout = {modality_name: BatchDropout(config['padding'], config['dropout']) if config['dropout'] else None
+        #                               for modality_name, config in modality_config.items() if not config['predrop']}
 
 
     def __call__(self, batch):
@@ -383,7 +383,7 @@ class MultimodalCollator:
                 for k2, v2 in v.items():
                     d[k][k2].append(v2)
         batch = {k: self.modality_collators[k](v) for k, v in d.items()} #Collate
-        batch = {k: self.modality_dropout[k](v) if self.modality_dropout[k] else v for k, v in batch.items()} #Dropout
+        #batch = {k: self.modality_dropout[k](v) if self.modality_dropout[k] else v for k, v in batch.items()} #Dropout
         return batch
 
 
