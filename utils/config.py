@@ -48,6 +48,7 @@ def get_cfg_defaults_train():
     config.fcl = False
     config.fcl_root = [1,2,3,4,5]
     config.fusion_combos = [5,4]
+    config.loss_masking = True
     config.return_logits = True
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
@@ -94,7 +95,10 @@ def get_model_config(config):
        #"vocab_size": config.vocab_size,
         "batch_size": config.batch_size,
         #"inverse_doom": config.inverse_doom,
+        "fcl": config.fcl,
+        "fcl_root": config.fcl_root,
         "fusion_combos": config.fusion_combos,
+        "loss_masking": config.loss_masking,
         "zorro": config.zorro
     }
     return model_config
