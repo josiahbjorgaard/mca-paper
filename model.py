@@ -173,9 +173,10 @@ class MFDOOMPretrainingLoss(nn.Module):
             self,
             modality_names,
             bimodal_contrastive = False,
+            no_fusion = False,
             non_fusion_fcl = False,
             do_fcl = False, #Should be FrozenSet
-            fcl_root=None,
+            fcl_root = None,
             fusion_combos = None,
             masking = True,
     ):
@@ -184,6 +185,7 @@ class MFDOOMPretrainingLoss(nn.Module):
         self.masking = masking
         self.modality_names = modality_names
         self.do_fcl = do_fcl
+        self.no_fusion = no_fusion
         self.fusion_combos = fusion_combos
         if self.do_fcl:
             self.fcl_root = frozenset(fcl_root)
@@ -191,7 +193,9 @@ class MFDOOMPretrainingLoss(nn.Module):
             self.fcl_losses = {fusion_combo: ContrastiveLossWithTemperature() for fusion_combo in fusion_combos if fusion_combo != self.fcl_root}
         else:
             self.fcl_root = None
-        if bimodal_contrastive: # Contrast all modalities to all modalities
+        if no_fusion:
+            loss_pairs = list(combinations(self.modality_names, r=2))
+        elif bimodal_contrastive: # Contrast all modalities to all modalities
             loss_pairs = list(combinations(self.modality_names + ['fusion'], r=2))
         else: #Contrast each unmimodal token to fusion
             loss_pairs = [(modality_name, 'fusion') for modality_name in self.modality_names]
@@ -213,7 +217,7 @@ class MFDOOMPretrainingLoss(nn.Module):
                 assert i+mlen < pooled_tokens.shape[1]
                 outputs[fusion_combo] = pooled_tokens[:, i+mlen,:].squeeze(1)
             outputs['fusion'] = outputs[self.fcl_root] #Copy it twice because it's easier
-        else: #Otherwise just one fusion token after unimodal tokens
+        elif not self.no_fusion: #Otherwise just one fusion token after unimodal tokens
             outputs['fusion'] = pooled_tokens[:, len(self.modality_names)+1].squeeze(1)
 
         outputs['global_output'] = pooled_tokens[:, -1, :].squeeze(1) #May remove this in the future, placeholder token
@@ -283,6 +287,7 @@ class MFDOOM(nn.Module):
             fusion_combos = [4,5], #Powers of fusion channels to mask in attention
             isolated_fusion = True, #Basically deprecated
             zorro = False,
+            no_fusion = False,
             loss_masking = True,
             #ntokens=1024,
             **kwargs
@@ -291,11 +296,14 @@ class MFDOOM(nn.Module):
         print(f"Got kwargs: {kwargs}")
         self.batch_size = batch_size
         self.isolated_fusion = isolated_fusion
+        self.no_fusion = no_fusion
         self.inverse_doom = None #inverse_doom #Deprecated
         self.fusion_token = -1
         self.global_token = -2
         self.fusion_combos = [frozenset(x) for x in adjusted_powerset(list(range(len(encoder_configs))), fusion_combos)]
-        if not fcl or zorro: #we
+        if not fcl or zorro and no_fusion: #we
+            return_token_types = list(range(len(encoder_configs))) + [self.global_token]
+        elif not fcl or zorro:
             return_token_types = list(range(len(encoder_configs))) + [self.fusion_token, self.global_token]
             self.fcl_root=None
         else: #fusion channel loss has has extra pooled fusion tokens
@@ -373,7 +381,8 @@ class MFDOOM(nn.Module):
         token_types_attend_from = rearrange(token_types, 'i -> i 1')
         token_types_attend_to = rearrange(token_types, 'j -> 1 j')
         zorro_mask = token_types_attend_from == token_types_attend_to
-        zorro_mask = zorro_mask | (token_types_attend_from == self.fusion_token)
+        if not self.no_fusion:
+            zorro_mask = zorro_mask | (token_types_attend_from == self.fusion_token)
         #zorro_mask = repeat(zorro_mask, 'j i -> i j')
         return ~zorro_mask #.to(torch.long)
 
@@ -436,11 +445,12 @@ class MFDOOM(nn.Module):
                    for modality_name in self.modality_types]) # in case order mixed up
         tokens, attention_masks = list(tokens), list(attention_masks)
         modality_sample_mask = {k:(x==0).sum(dim=1)!=0 for k,x in zip(self.modality_types,attention_masks)}
-        fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
-        tokens.append(fusion_tokens)
+        if not self.no_fusion:
+            fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
+            tokens.append(fusion_tokens)
+            fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
+            attention_masks.append(fusion_mask)
         tokens, ps = pack(tokens , 'b * d')
-        fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
-        attention_masks.append(fusion_mask)
         padding, ps = pack(attention_masks, 'b *')
         padding = padding.to(torch.bool)
         # attend and feedforward
