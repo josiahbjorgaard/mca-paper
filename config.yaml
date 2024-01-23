@@ -10,10 +10,10 @@ modality_config:
   pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   vid: {type: 'sequence', pad_len: 2048,}
-num_fusion_tokens: 52
+num_fusion_tokens: 104
 ds_frac: 0.2
 predrop: false
-batch_size: 4
+batch_size: 6
 lr: 0.00001
 layers: 7 #12
 lr_scheduler_type: "constant_with_warmup"

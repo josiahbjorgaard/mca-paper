@@ -247,8 +247,8 @@ class MFDOOMPretrainingLoss(nn.Module):
                         mod_mask = (sample_mask[mod]*mask).to(torch.bool) if self.masking else None
                         this_loss = self.fcl_losses[k](outputs[mod], outputs[k], mask=mod_mask)
                         outputs['losses'][f"fcl_{mod}|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
-            outputs['losses']["fcl"] = torch.mean(sum([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' in k]))
-            outputs['losses']["no-fcl"] = torch.mean(sum([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' not in k]))
+            outputs['losses']["fcl"] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' in k]).mean()
+            outputs['losses']["no-fcl"] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' not in k]).mean()
         # Zero out NaN losses (batches with all masked samples give NaN) and average
         loss_list = [x for x in outputs['losses'].values()]
         loss_tensor = torch.tensor(loss_list)
@@ -295,6 +295,7 @@ class MFDOOM(nn.Module):
         self.fusion_combos = [frozenset(x) for x in adjusted_powerset(list(range(len(encoder_configs))), fusion_combos)]
         if not fcl or zorro: #we
             return_token_types = list(range(len(encoder_configs))) + [self.fusion_token, self.global_token]
+            self.fcl_root=None
         else: #fusion channel loss has has extra pooled fusion tokens
             self.fcl_root = frozenset(fcl_root)
             num_pool_fusion_tokens = len(self.fusion_combos)
@@ -347,8 +348,6 @@ class MFDOOM(nn.Module):
                                                         pool_mask)
         self.register_buffer('attn_mask', attn_mask)
         self.register_buffer('pool_mask', pool_mask)
-        torch.save(pool_mask, 'pool_mask.pt')
-        torch.save(attn_mask, 'attn_mask.pt')
 
         self.loss = MFDOOMPretrainingLoss(self.modality_types,
                                           do_fcl=fcl and not zorro,
