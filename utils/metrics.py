@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 from torchmetrics import Metric
 from torchmetrics.utilities.data import dim_zero_cat
+from torch.nn.functional import normalize
 
 #from torchmetrics.utilities import dim_zero_cat
 
@@ -15,12 +16,14 @@ from torchmetrics.utilities.data import dim_zero_cat
 # latents for the other side of positive pairs
 # lam : hyperparameter balancing the two losses
 
-
-def lalign(x, y, alpha=2):
+def lalign(x, y, alpha=2, norm=True):
+    x = normalize(x) if norm else x
+    y = normalize(y) if norm else x
     return (x - y).norm(dim=1).pow(alpha).mean()
 
 
-def lunif(x, t=2):
+def lunif(x, t=2, norm=True):
+    x = normalize(x) if norm else x
     sq_pdist = torch.pdist(x, p=2).pow(2)
     return sq_pdist.mul(-t).exp().mean().log()
 
