@@ -119,7 +119,7 @@ for epoch in range(config.start_epoch,config.epochs):
         if accelerator.is_main_process:
             progress_bar.update(world_size)
         accelerator.log({"total_loss": loss.detach().to("cpu")})
-        accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items()})
+        accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
         accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
                          "grad_norm": get_grad_norm(model).to("cpu")})
         accelerator.log({"lr": optimizer.param_groups[0]['lr']})
@@ -155,7 +155,7 @@ for epoch in range(config.start_epoch,config.epochs):
                 #Step Log
                 losses["total_loss"] += loss.detach().to("cpu")
                 accelerator.log({"val_step_total_loss":loss.to("cpu")})
-                accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items()})
+                accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items() if '|' not in k})
             #Epoch Log
             accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items()})
             uniformity = {'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
