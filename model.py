@@ -180,7 +180,7 @@ class MFDOOMPretrainingLoss(nn.Module):
             masking = True,
     ):
         super().__init__()
-
+        self.non_fusion_fcl = non_fusion_fcl
         self.masking = masking
         self.modality_names = modality_names
         self.do_fcl = do_fcl
@@ -276,6 +276,8 @@ class MFDOOM(nn.Module):
             return_padding = False,
             return_logits = False,
             #inverse_doom = False,
+            bimodal_contrastive = False,
+            non_fusion_fcl = False,
             fcl = False, #Fusion channel loss
             fcl_root = [1,2,3,4,5], #Root channel for Fusion channel loss, almost always all
             fusion_combos = [4,5], #Powers of fusion channels to mask in attention
@@ -353,6 +355,8 @@ class MFDOOM(nn.Module):
                                           do_fcl=fcl and not zorro,
                                           fusion_combos=self.fusion_combos,
                                           fcl_root=self.fcl_root,
+                                          bimodal_contrastive = bimodal_contrastive,
+                                          non_fusion_fcl=non_fusion_fcl,
                                           masking=loss_masking)
 
 
