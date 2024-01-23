@@ -173,6 +173,7 @@ class MFDOOMPretrainingLoss(nn.Module):
             self,
             modality_names,
             bimodal_contrastive = False,
+            non_fusion_fcl = False,
             do_fcl = False, #Should be FrozenSet
             fcl_root=None,
             fusion_combos = None,
@@ -225,24 +226,27 @@ class MFDOOMPretrainingLoss(nn.Module):
         outputs['losses'] = {}
         for k in self.losses.keys():
             moda, modb = k
-            if moda == 'fusion':
+            if not self.masking:
+                mask = None
+            elif moda == 'fusion':
                 mask = sample_mask[modb].to(torch.bool)
             elif modb == 'fusion':
                 mask = sample_mask[moda].to(torch.bool)
             else:
                 mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
-            if not self.masking:
-                mask = None
-            this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
+            this_loss = self.losses[k](outputs[moda], outputs[modb], mask=mask)
             outputs['losses']["_".join(sorted(k))] = this_loss
         if self.do_fcl:
             for k in self.fcl_losses.keys():
-                if self.masking:
-                    mask = torch.stack([sample_mask[self.modality_names[i]] for i in k]).prod(dim=0)
-                else:
-                    mask = None
+                mask = torch.stack([sample_mask[self.modality_names[i]] for i in k]).sum(dim=0).to(torch.bool) if self.masking else None
+                #mask = torch.stack([sample_mask[self.modality_names[i]] for i in k]).prod(dim=0).to(torch.bool) if self.masking else None
                 this_loss = self.fcl_losses[k](outputs['fusion'], outputs[k], mask=mask)
-                outputs['losses'][f"fcl_fusion_{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
+                outputs['losses'][f"fcl_fusion|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
+                if self.non_fusion_fcl:
+                    for mod in self.modality_names:
+                        mod_mask = (sample_mask[mod]*mask).to(torch.bool) if self.masking else None
+                        this_loss = self.fcl_losses[k](outputs[mod], outputs[k], mask=mod_mask)
+                        outputs['losses'][f"fcl_{mod}|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
             outputs['losses']["fcl"] = torch.mean(sum([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' in k]))
             outputs['losses']["no-fcl"] = torch.mean(sum([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' not in k]))
         # Zero out NaN losses (batches with all masked samples give NaN) and average

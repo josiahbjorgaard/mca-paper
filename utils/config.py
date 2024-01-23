@@ -45,6 +45,7 @@ def get_cfg_defaults_train():
     config.vocab_size = 20000 #36602
     #config.inverse_doom = False
     config.bimodal_contrastive = False
+    config.non_fusion_fcl = False
     config.fcl = False
     config.fcl_root = [1,2,3,4,5]
     config.fusion_combos = [5,4]
@@ -97,6 +98,8 @@ def get_model_config(config):
         #"inverse_doom": config.inverse_doom,
         "fcl": config.fcl,
         "fcl_root": config.fcl_root,
+        "bimodal_contrastive": config.bimodal_contrastive,
+        "non_fusion_fcl": config.non_fusion_fcl,
         "fusion_combos": config.fusion_combos,
         "loss_masking": config.loss_masking,
         "zorro": config.zorro

@@ -20,6 +20,7 @@ lr_scheduler_type: "constant_with_warmup"
 epochs: 128
 #start_epoch: 22
 bimodal_contrastive: False
+non_fusion_fcl: False
 fcl: True
 fcl_root: [0,1,2,3,4]
 fusion_combos: [5,4,3,2]
