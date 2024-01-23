@@ -14,6 +14,11 @@ from encoders import encoders_dict
 
 #import torch_xla.core.xla_model as xm
 
+from itertools import chain, combinations
+
+
+def adjusted_powerset(unique_tokens, powers=[2, 3]):
+    yield from chain.from_iterable(combinations(unique_tokens, r) for r in powers)
 
 def default(*args):
     for arg in args:
@@ -167,18 +172,30 @@ class MFDOOMPretrainingLoss(nn.Module):
     def __init__(
             self,
             modality_names,
-            do_mse,
+            bimodal_contrastive = False,
+            do_fcl = False, #Should be FrozenSet
+            fcl_root=None,
+            fusion_combos = None,
+            masking = True,
     ):
         super().__init__()
-        self.modality_names = modality_names + ['fusion']
-        #TODO check if we really need a separate loss for each one? there's a trainable temperature parameter...
-        self.do_mse = do_mse
-        if self.do_mse:
-            print("Doing MSE")
-            #self.mse_losses = {modality_name: nn.MSELoss() for modality_name in modality_names}
-            self.mse_losses = {modality_name: ContrastiveLossWithTemperature() for modality_name in modality_names}
+
+        self.masking = masking
+        self.modality_names = modality_names
+        self.do_fcl = do_fcl
+        if self.do_fcl:
+            print("Doing Fusion Channel Loss to Root Channel")
+            assert fcl_root in fusion_combos
+            self.fcl_losses = {fusion_combo: ContrastiveLossWithTemperature() for fusion_combo in fusion_combos if fusion_combo != fcl_root}
+            self.fcl_root = fcl_root
+        else:
+            self.fcl_root = None
+        if bimodal_contrastive: # Contrast all modalities to all modalities
+            loss_pairs = list(combinations(self.modality_names + ['fusion'], r=2))
+        else: #Contrast each unmimodal token to fusion
+            loss_pairs = [(modality_name, 'fusion') for modality_name in self.modality_names]
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
-                       for pair in combinations(self.modality_names, r=2)}
+                       for pair in loss_pairs}
 
     def forward(
             self,
@@ -186,50 +203,58 @@ class MFDOOMPretrainingLoss(nn.Module):
             sample_mask,
             no_loss = False
     ):
-        outputs = {modality_name: pooled_tokens[:,i,:].squeeze(1)
+        outputs = {modality_name: pooled_tokens[:, i, :].squeeze(1)
                    for i, modality_name in enumerate(self.modality_names)}
 
-        if self.do_mse: #Add extra fusion tokens
+        if self.do_fcl: #Add extra fusion tokens
             mlen = len(self.modality_names) #First fusion token is all, the rest are modality-specific
-            for i, modality_name in enumerate([x for x in self.modality_names if x != 'fusion']):
+            for i, fusion_combo in enumerate(self.fusion_combos):
                 assert i+mlen < pooled_tokens.shape[1]
-                outputs[f"fusion_{modality_name}"] = pooled_tokens[:,i+mlen,:].squeeze(1)
+                outputs[fusion_combo] = pooled_tokens[:, i+mlen,:].squeeze(1)
+            outputs['fusion'] = outputs[self.fcl_root] #Copy it twice because it's easier
+        else: #Otherwise just one fusion token after unimodal tokens
+            outputs['fusion'] = pooled_tokens[:, len(self.modality_names)+1].squeeze(1)
 
-        outputs['global_output'] = pooled_tokens[:, -1, :].squeeze(1)
-        if not no_loss:
-            #Need to apply a sample mask for missing modalities
-            # don't compute loss for the pair if one of them is missing
-            outputs['losses']={}
-            for k in self.losses.keys():
-                moda, modb = k
-                if moda == 'fusion':
-                    mask = sample_mask[modb].to(torch.bool)
-                elif modb == 'fusion':
-                    mask = sample_mask[moda].to(torch.bool)
-                else:
-                    mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
-                this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
-                outputs['losses']["_".join(k)] = this_loss
+        outputs['global_output'] = pooled_tokens[:, -1, :].squeeze(1) #May remove this in the future, placeholder token
 
-            if self.do_mse:
-                for k in self.mse_losses.keys():
-                    # k is the modality name that is missing for inverse doom
-                    # k is the only modality for doom
-                    #mask = sample_mask[k]
-                    #this_loss = self.mse_losses[k](outputs['fusion'][mask], outputs[f"fusion_{k}"][mask])
-                    this_loss = self.mse_losses[k](outputs['fusion'], outputs[f"fusion_{k}"], mask=mask)
-                    outputs['losses'][f"mse_fusion_{k}"] = this_loss
+        if no_loss:
+            return outputs
 
-            # Zero out NaN losses (batches with all masked samples give NaN) and average
-            loss_list = [x for x in outputs['losses'].values()]
-            loss_tensor = torch.tensor(loss_list)
-            loss_mask = ~torch.isnan(loss_tensor)
-            nl = torch.sum(loss_mask).to(torch.float)
-            if nl == 0.0:
-                print(f"Warning, there are no losses calculated")
-                outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])
+        #Need to apply a sample mask for missing modalities
+        # don't compute loss for the pair if one of them is missing
+        outputs['losses'] = {}
+        for k in self.losses.keys():
+            moda, modb = k
+            if moda == 'fusion':
+                mask = sample_mask[modb].to(torch.bool)
+            elif modb == 'fusion':
+                mask = sample_mask[moda].to(torch.bool)
             else:
-                outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])/nl
+                mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
+            if not self.masking:
+                mask = None
+            this_loss = self.losses[k](outputs[moda],outputs[modb], mask=mask)
+            outputs['losses']["_".join(k)] = this_loss
+
+        if self.do_fcl:
+            for k in self.fcl_losses.keys():
+                if self.masking:
+                    mask = torch.stack([sample_mask[i] for i in k]).prod(dim=0)
+                else:
+                    mask = None
+                this_loss = self.fcl_losses[k](outputs['fusion'], outputs[k], mask=mask)
+                outputs['losses'][f"fcl_fusion_{k}"] = this_loss
+
+        # Zero out NaN losses (batches with all masked samples give NaN) and average
+        loss_list = [x for x in outputs['losses'].values()]
+        loss_tensor = torch.tensor(loss_list)
+        loss_mask = ~torch.isnan(loss_tensor)
+        nl = torch.sum(loss_mask).to(torch.float)
+        if nl == 0.0:
+            print(f"Warning, there are no losses calculated")
+            outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])
+        else:
+            outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])/nl
         return outputs
 
 
@@ -246,8 +271,11 @@ class MFDOOM(nn.Module):
             batch_size = 8,
             return_padding = False,
             return_logits = False,
-            inverse_doom = False,
-            isolated_fusion = True,
+            #inverse_doom = False,
+            fcl = False, #Fusion channel loss
+            fcl_root = [1,2,3,4,5], #Root channel for Fusion channel loss, almost always all
+            fusion_combos = [4,5], #Powers of fusion channels to mask in attention
+            isolated_fusion = True, #Basically deprecated
             zorro = False,
             #ntokens=1024,
             **kwargs
@@ -256,13 +284,16 @@ class MFDOOM(nn.Module):
         print(f"Got kwargs: {kwargs}")
         self.batch_size = batch_size
         self.isolated_fusion = isolated_fusion
-        self.inverse_doom = inverse_doom
+        self.inverse_doom = None #inverse_doom #Deprecated
         self.fusion_token = -1
         self.global_token = -2
-        if zorro:
+        if not fcl or zorro:
             return_token_types = list(range(len(encoder_configs))) + [self.fusion_token, self.global_token]
-        else: #MFDOOM has extra pooled fusion tokens
-            num_pool_fusion_tokens = len(encoder_configs) + 1
+            self.fusion_combos = None
+        else: #fusion channel loss has has extra pooled fusion tokens
+            self.fusion_combos = [frozenset(x) for x in adjusted_powerset(list(range(len(encoder_configs))), fusion_combos)]
+            self.fcl_root = frozenset(fcl_root)
+            num_pool_fusion_tokens = len(encoder_configs) + len(self.fusion_combos)
             return_token_types = list(range(len(encoder_configs))) + \
                                  [self.fusion_token] * num_pool_fusion_tokens + \
                                  [self.global_token]
@@ -276,20 +307,17 @@ class MFDOOM(nn.Module):
         #self.attn_pool = nn.MultiheadAttention(embed_dim=dim, num_heads=heads,) # bias=False, batch_first=True)
         self.heads = heads
 
-        self.return_padding=return_padding
-        self.return_logits=return_logits
+        self.return_padding = return_padding
+        self.return_logits = return_logits
 
         self.encoders = nn.ModuleDict({modality_name: encoders_dict[encoder_config['type']](**encoder_config)
                          for modality_name, encoder_config in encoder_configs.items()})
         self.modality_types = list(encoder_configs.keys())
-        
-        self.loss = MFDOOMPretrainingLoss(self.modality_types, do_mse = not zorro)
-
         self.num_fusion_tokens = num_fusion_tokens
         
         self.token_dims = [encoder_configs[token_type]['max_tokens'] for token_type in self.modality_types]
         self.fusion_tokens = nn.Parameter(torch.randn(num_fusion_tokens, dim))
-        self.register_buffer('fusion_mask',torch.zeros(
+        self.register_buffer('fusion_mask', torch.zeros(
                 num_fusion_tokens,
             ).to(torch.bool))
 
@@ -306,11 +334,22 @@ class MFDOOM(nn.Module):
 
         attn_mask = self.create_zorro_mask(self.token_types)
         pool_mask = self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor)
-        if not zorro:
-            attn_mask = self.create_mfdoom_mask(self.token_types, attn_mask)
-            pool_mask = self.create_mfdoom_pooling_mask(self.token_types, return_token_types_tensor, pool_mask)
+        if not zorro: #Zorro doesn't have modal-incomplete fusion channel attention mask
+            attn_mask = self.create_mfdoom_mask(self.token_types, self.fusion_combos, attn_mask)
+            if fcl: #Breaksdown fusion channel tokens in the pooling mask too
+                pool_mask = self.create_mfdoom_pooling_mask(self.token_types,
+                                                        self.fusion_combos,
+                                                        return_token_types_tensor,
+                                                        pool_mask)
         self.register_buffer('attn_mask', attn_mask)
         self.register_buffer('pool_mask', pool_mask)
+
+        self.loss = MFDOOMPretrainingLoss(self.modality_types,
+                                          do_fcl=fcl and not zorro,
+                                          fusion_combos=self.fusion_combos,
+                                          fcl_root=fcl_root
+                                          )
+
 
     def create_token_types_tensor(self,dim_list, num_fusion_tokens):
         """
@@ -337,10 +376,7 @@ class MFDOOM(nn.Module):
             token_types_attend_to, dtype=torch.long) * self.global_token)
         return ~pool_mask
 
-    def create_mfdoom_mask(self, token_types, zorro_mask):
-        """
-        Create the MFDoom mask. Must have num_fusion_tokens//num_modalities == 0
-        """
+    def old_create_mfdoom_mask(self, token_types, zorro_mask):
         # Modal fusion for datasets with only one modality mask
         unique_tokens = torch.unique(token_types)
         assert self.num_fusion_tokens % len(unique_tokens) == 0
@@ -360,7 +396,31 @@ class MFDOOM(nn.Module):
         zorro_mask[token_types == self.fusion_token] = mfdoom_mask
         return zorro_mask
 
-    def create_mfdoom_pooling_mask(self,
+    def create_mfdoom_mask(self,
+                           token_types,
+                           fusion_combos,
+                           zorro_mask,):
+        """
+        Create the MFDoom mask. Must have num_fusion_tokens//num_modalities == 0
+        """
+        num_fusion_tokens = (token_types == self.fusion_token).sum()
+        assert num_fusion_tokens % len(
+            fusion_combos) == 0, f"Number of fusion tokens {num_fusion_tokens} must be divisible by the number of combinations {len(token_combos)}"
+        nsubtok = int(num_fusion_tokens / len(fusion_combos))
+
+        mfdoom_mask = [~torch.isin(token_types, torch.Tensor(i)) for i in fusion_combos]
+
+        fusion_tokens = token_types == self.fusion_token
+        subfusion_tokens = torch.split(fusion_tokens.nonzero(), nsubtok)
+        for idx, mfdoom in enumerate(mfdoom_mask):
+            mfdoom[fusion_tokens] = True
+            mfdoom[subfusion_tokens[idx]] = False
+            mfdoom_mask[idx] = mfdoom
+        mfdoom_mask = repeat(mfdoom_mask, 'i j -> (i i2) j', i2=nsubtok)
+        zorro_mask[token_types == self.fusion_token] = mfdoom_mask
+        return zorro_mask
+
+    def old_create_mfdoom_pooling_mask(self,
                                    token_types,
                                    return_token_types_tensor,
                                    pool_mask):
@@ -369,6 +429,22 @@ class MFDOOM(nn.Module):
         nsubtok = int(self.num_fusion_tokens / len(unique_tokens))
         fusion_blocks = [torch.ones((1, nsubtok))
                          for _ in range(len(unique_tokens))]
+        mfdoom_pool_mask = torch.block_diag(*fusion_blocks)
+        select_mask = (return_token_types_tensor == self.fusion_token).unsqueeze(1) * \
+                      (token_types == self.fusion_token).unsqueeze(0)
+        pool_mask[select_mask] = ~mfdoom_pool_mask.to(torch.bool).flatten()
+        return pool_mask
+
+    def create_mfdoom_pooling_mask(self,
+                                   token_types,
+                                   fusion_combos,
+                                   return_token_types_tensor,
+                                   pool_mask):
+        assert self.num_fusion_tokens % len(
+            fusion_combos) == 0, f"Number of fusion tokens {self.num_fusion_tokens} must be divisible by the number of combinations {len(token_combos)}"
+        nsubtok = int(self.num_fusion_tokens / len(fusion_combos))
+        fusion_blocks = [torch.ones((1, nsubtok))
+                         for _ in range(len(fusion_combos))]
         mfdoom_pool_mask = torch.block_diag(*fusion_blocks)
         select_mask = (return_token_types_tensor == self.fusion_token).unsqueeze(1) * \
                       (token_types == self.fusion_token).unsqueeze(0)

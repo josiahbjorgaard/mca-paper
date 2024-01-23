@@ -43,7 +43,11 @@ def get_cfg_defaults_train():
     config.n_step_checkpoint = 20000
     config.run_eval_loop = True
     config.vocab_size = 20000 #36602
-    config.inverse_doom = False
+    #config.inverse_doom = False
+    config.bimodal_contrastive = False
+    config.fcl = False
+    config.fcl_root = [1,2,3,4,5]
+    config.fusion_combos = [5,4]
     config.return_logits = True
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
@@ -89,7 +93,8 @@ def get_model_config(config):
         "encoder_configs": config.encoder_configs,
        #"vocab_size": config.vocab_size,
         "batch_size": config.batch_size,
-        "inverse_doom": config.inverse_doom,
+        #"inverse_doom": config.inverse_doom,
+        "fusion_combos": config.fusion_combos,
         "zorro": config.zorro
     }
     return model_config
