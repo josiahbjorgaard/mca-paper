@@ -18,7 +18,7 @@ from torch.nn.functional import normalize
 
 def lalign(x, y, alpha=2, norm=True):
     x = normalize(x) if norm else x
-    y = normalize(y) if norm else x
+    y = normalize(y) if norm else y
     return (x - y).norm(dim=1).pow(alpha).mean()
 
 
@@ -46,11 +46,11 @@ class Alignment(Metric):
         if preds.shape != target.shape:
             raise ValueError("preds and target must have the same shape")
 
-    def compute(self):
+    def compute(self, norm=False):
         # parse inputs
         preds = dim_zero_cat(self.preds)
         target = dim_zero_cat(self.target)
-        return lalign(preds, target, self.alpha)
+        return lalign(preds, target, self.alpha, norm)
 
 
 # And torchmetrics variants:
@@ -63,7 +63,7 @@ class Uniformity(Metric):
     def update(self, preds: Tensor) -> None:
         self.preds.append(preds)
 
-    def compute(self):
+    def compute(self, norm=False):
         # parse inputs
         preds = dim_zero_cat(self.preds)
-        return lunif(preds, self.t)
+        return lunif(preds, self.t, norm)
