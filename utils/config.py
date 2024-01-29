@@ -74,7 +74,12 @@ def training_config(filename):
         config_dict = yaml.safe_load(stream)
     new_config = CN(config_dict)
     if not config.output_dir:
-        config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
+        output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
+        config.output_dir = output_dir
+        i = 1
+        while os.path.isdir(config.output_dir):
+            config.output_dir = output_dir + f'_{i}' 
+            i+=1 
     print(new_config)
     #config.merge_from_file(filename)
     config.merge_from_other_cfg(new_config)
