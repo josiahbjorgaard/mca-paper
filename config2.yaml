@@ -10,10 +10,10 @@ modality_config:
   pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   #  vid: {type: 'sequence', pad_len: 2048,}
-num_fusion_tokens: 104 #90 #88 #104
+num_fusion_tokens: 132 #90 #88 #104
 ds_frac: 1.0
 predrop: false
-batch_size: 256
+batch_size: 192
 lr: 0.00001
 layers: 10
 lr_scheduler_type: "constant_with_warmup"
@@ -31,4 +31,4 @@ zorro: false
 #restart: "training_output_18_03_24_01_2024/50"
 #restart_wandb: "rrto71nb"
 clip: 2.0
-dataset: "/shared/how2_all_proc_90p"
+dataset: "/mount/data/mfdoom/how2_all_proc_90p"
