@@ -56,7 +56,7 @@ if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
-    project_name="MFDOOM",
+    project_name="MFDOOM_Paper",
     config=dict(config),
     init_kwargs=init_kwargs
     )

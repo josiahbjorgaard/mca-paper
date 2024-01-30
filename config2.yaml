@@ -10,12 +10,12 @@ modality_config:
   pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   #  vid: {type: 'sequence', pad_len: 2048,}
-num_fusion_tokens: 90 #88 #104
+num_fusion_tokens: 104 #90 #88 #104
 ds_frac: 1.0
 predrop: false
-batch_size: 64
+batch_size: 256
 lr: 0.00001
-layers: 7 #12
+layers: 10
 lr_scheduler_type: "constant_with_warmup"
 epochs: 1024
 #start_epoch: 51
@@ -23,7 +23,7 @@ bimodal_contrastive: True
 non_fusion_fcl: True
 fcl: True
 fcl_root: [0,1,2,3]
-fusion_combos: [4,3] #[4,3,2]
+fusion_combos: [4,3,2]
 loss_masking: True
 #inverse_doom: true
 zorro: false
