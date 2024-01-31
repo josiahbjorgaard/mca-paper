@@ -10,25 +10,25 @@ modality_config:
   pt: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   sm: {type: 'sequence', pad_len: 64, data_col_name: "tokens",}
   #  vid: {type: 'sequence', pad_len: 2048,}
-num_fusion_tokens: 88 #104
+num_fusion_tokens: 132 #90 #88 #104
 ds_frac: 1.0
 predrop: false
-batch_size: 64
+batch_size: 192
 lr: 0.00001
-layers: 7 #12
+layers: 10
 lr_scheduler_type: "constant_with_warmup"
 epochs: 1024
-#start_epoch: 127
+#start_epoch: 51
 bimodal_contrastive: True
 non_fusion_fcl: True
-fcl: False #True
+fcl: True
 fcl_root: [0,1,2,3]
-fusion_combos: [4,3] #[4,3,2]
+fusion_combos: [4,3,2]
 loss_masking: True
 #inverse_doom: true
-zorro: True
-#output_dir: "training_output_01_44_24_01_2024"
-#restart: "training_output_01_44_24_01_2024/127"
-#restart_wandb: "7b4gzxwm"
+zorro: true
+#output_dir: "training_output_18_03_24_01_2024"
+#restart: "training_output_18_03_24_01_2024/50"
+#restart_wandb: "rrto71nb"
 clip: 2.0
-dataset: "/shared/how2_all_proc_90p"
+dataset: "/mount/data/mfdoom/how2_all_proc_50p"
