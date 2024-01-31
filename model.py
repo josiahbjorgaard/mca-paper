@@ -163,6 +163,134 @@ class MFDOOMLayer(nn.Module):
         return batch
 
 
+class MFDOOMPretrainingLoss2(nn.Module):
+    """
+    Pairwise contrastive loss.
+    N.B. each loss function contains an all-gather operation
+    on it's inputs during distributed training
+    """
+    def __init__(
+            self,
+            modality_names,
+            bimodal_contrastive = False,
+            no_fusion = False,
+            non_fusion_fcl = False,
+            do_fcl = False, #Should be FrozenSet
+            fcl_special = True,
+            fcl_root = None,
+            fusion_combos = None,
+            masking = True,
+    ):
+        super().__init__()
+        self.non_fusion_fcl = non_fusion_fcl
+        self.masking = masking
+        self.modality_names = modality_names
+        self.do_fcl = do_fcl
+        self.no_fusion = no_fusion
+        self.fcl_special = fcl_special
+        self.fusion_combos = fusion_combos
+
+
+
+        if self.do_fcl: #Contrast all FCL channels to all other fcl channels
+            self.fcl_root = frozenset(fcl_root)
+            assert fcl_root in fusion_combos, f"{fcl_root} not in {fusion_combos}"
+            self.fcl_losses = {fusion_combo: ContrastiveLossWithTemperature() for fusion_combo in fusion_combos if fusion_combo != self.fcl_root}
+        else:
+            self.fcl_root = None
+        if no_fusion: #Contrast all modalities to all modalities
+            loss_pairs = list(combinations(self.modality_names, r=2))
+        elif fcl_special: #Contrast all modalities to all Modalities and fcl channels
+            loss_pairs = []
+            for modality_name in self.modality_names:
+                loss_pairs = loss_pairs + [(modality_name, fusion_combo) for fusion_combo in fusion_combos]
+            if bimodal_contrastive:
+                loss_pairs = loss_pairs + list(combinations(self.modality_names, r=2))
+        elif bimodal_contrastive: # Contrast all modalities to all modalities and fusion
+            loss_pairs = list(combinations(self.modality_names + ['fusion'], r=2))
+        else: #Contrast each unmimodal token to fusion
+            loss_pairs = [(modality_name, 'fusion') for modality_name in self.modality_names]
+
+        self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
+                       for pair in loss_pairs}
+
+    def forward(
+            self,
+            pooled_tokens,
+            sample_mask,
+            no_loss = False
+    ):
+        outputs = {modality_name: pooled_tokens[:, i, :].squeeze(1)
+                   for i, modality_name in enumerate(self.modality_names)}
+
+        if self.do_fcl: #Add extra fusion tokens
+            mlen = len(self.modality_names) #First fusion token is all, the rest are modality-specific
+            for i, fusion_combo in enumerate(self.fusion_combos):
+                assert i+mlen < pooled_tokens.shape[1]
+                outputs[fusion_combo] = pooled_tokens[:, i+mlen,:].squeeze(1) #Indexed by tuple of the token indices
+            outputs['fusion'] = outputs[self.fcl_root] #Copy it twice because it's easier
+        elif not self.no_fusion: #Otherwise just one fusion token after unimodal tokens
+            outputs['fusion'] = pooled_tokens[:, len(self.modality_names)+1].squeeze(1)
+
+        outputs['global_output'] = pooled_tokens[:, -1, :].squeeze(1) #May remove this in the future, placeholder token
+
+        if no_loss:
+            return outputs
+
+        #Need to apply a sample mask for missing modalities
+        # don't compute loss for the pair if one of them is missing
+        outputs['losses'] = {}
+        if self.fcl_special:
+            for k in self.losses.keys():
+                moda, modb = k
+                if not self.masking:
+                    mask = None
+                elif moda == 'fusion':
+                    mask = sample_mask[modb].to(torch.bool)
+                elif modb == 'fusion':
+                    mask = sample_mask[moda].to(torch.bool)
+                else:
+                    mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
+                this_loss = self.losses[k](outputs[moda], outputs[modb], mask=mask)
+                outputs['losses']["_".join(sorted(k))] = this_loss
+        else:
+            for k in self.losses.keys():
+                moda, modb = k
+                if not self.masking:
+                    mask = None
+                elif moda == 'fusion':
+                    mask = sample_mask[modb].to(torch.bool)
+                elif modb == 'fusion':
+                    mask = sample_mask[moda].to(torch.bool)
+                else:
+                    mask = (sample_mask[moda] * sample_mask[modb]).to(torch.bool)
+                this_loss = self.losses[k](outputs[moda], outputs[modb], mask=mask)
+                outputs['losses']["_".join(sorted(k))] = this_loss
+        if self.do_fcl:
+            for k in self.fcl_losses.keys():
+                mask = torch.stack([sample_mask[self.modality_names[i]] for i in k]).sum(dim=0).to(torch.bool) if self.masking else None
+                #mask = torch.stack([sample_mask[self.modality_names[i]] for i in k]).prod(dim=0).to(torch.bool) if self.masking else None
+                this_loss = self.fcl_losses[k](outputs['fusion'], outputs[k], mask=mask)
+                outputs['losses'][f"fcl_fusion|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
+                if self.non_fusion_fcl:
+                    for mod in self.modality_names:
+                        mod_mask = (sample_mask[mod]*mask).to(torch.bool) if self.masking else None
+                        this_loss = self.fcl_losses[k](outputs[mod], outputs[k], mask=mod_mask)
+                        outputs['losses'][f"fcl_{mod}|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
+            outputs['losses']["fcl"] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' in k]).mean()
+            outputs['losses']["no-fcl"] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' not in k]).mean()
+        # Zero out NaN losses (batches with all masked samples give NaN) and average
+        loss_list = [x for x in outputs['losses'].values()]
+        loss_tensor = torch.tensor(loss_list)
+        loss_mask = ~torch.isnan(loss_tensor)
+        nl = torch.sum(loss_mask).to(torch.float)
+        if nl == 0.0:
+            print(f"Warning, there are no losses calculated")
+            outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])
+        else:
+            outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])/nl
+        return outputs
+
 class MFDOOMPretrainingLoss(nn.Module):
     """
     Pairwise contrastive loss.
@@ -199,6 +327,7 @@ class MFDOOMPretrainingLoss(nn.Module):
             loss_pairs = list(combinations(self.modality_names + ['fusion'], r=2))
         else: #Contrast each unmimodal token to fusion
             loss_pairs = [(modality_name, 'fusion') for modality_name in self.modality_names]
+
         self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
                        for pair in loss_pairs}
 
@@ -215,7 +344,7 @@ class MFDOOMPretrainingLoss(nn.Module):
             mlen = len(self.modality_names) #First fusion token is all, the rest are modality-specific
             for i, fusion_combo in enumerate(self.fusion_combos):
                 assert i+mlen < pooled_tokens.shape[1]
-                outputs[fusion_combo] = pooled_tokens[:, i+mlen,:].squeeze(1)
+                outputs[fusion_combo] = pooled_tokens[:, i+mlen,:].squeeze(1) #Indexed by tuple of the token indices
             outputs['fusion'] = outputs[self.fcl_root] #Copy it twice because it's easier
         elif not self.no_fusion: #Otherwise just one fusion token after unimodal tokens
             outputs['fusion'] = pooled_tokens[:, len(self.modality_names)+1].squeeze(1)

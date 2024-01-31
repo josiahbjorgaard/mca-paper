@@ -88,22 +88,18 @@ accelerator.load_state(config.restart)
 
 model.eval()
 world_size = torch.cuda.device_count()
+assert world_size == 1
 with torch.no_grad():
-    for idb, batch in tqdm(enumerate(train_dl)):
-        # Training
-        batch = move_to(batch, device)
-        outputs = model(batch)
-        loss =outputs['loss']
-        if accelerator.is_main_process:
-            progress_bar.update(world_size)
-        accelerator.log({"total_loss": loss.detach().to("cpu")})
-        accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
-        #Eval looop
-    for i, batch in tqdm(enumerate(eval_dl)):
-        outputs = model(batch)
-        loss = outputs['loss']
-        for k, v in outputs['losses'].items():
-            losses[k] += v.detach().to("cpu")
+    for tv,dl in {'train': train_dl, 'eval': eval_dl}.items():
+        embeddings = defaultdict(list)
+        for idb, batch in tqdm(enumerate(dl)):
+            # Training
+            batch = move_to(batch, device)
+            outputs = model(batch)
+            loss = outputs.pop('loss')
+            losses = outputs.pop('losses')
+            for k,v in outputs.items():
+                embeddings[k].append(v)
             # Embedding space metrics
             for k in metrics_uniformity.keys():
                 if k != 'fusion':
@@ -115,28 +111,30 @@ with torch.no_grad():
                 sample_mask = outputs['modality_sample_mask'][k]
                 metrics_alignment[k].update(outputs[k][sample_mask],#.detach().to('cpu'),
                                                 outputs['fusion'][sample_mask]) #.detach().to('cpu'))
+            accelerator.log({"total_loss": loss.detach().to("cpu")})
+            accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
+            #Eval looop
 
-                #Step Log
-                losses["total_loss"] += loss.detach().to("cpu")
-            #Epoch Log
-            accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items() if '|' not in k})
-            uniformity = {'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
-            accelerator.log(uniformity)
-            alignment = {'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()}
-            accelerator.log(alignment)
-            accelerator.log({'val_epoch_unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
-            accelerator.log({'val_epoch_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
-            uniformity = {'val_epoch_norm_uniformity_'+k: v.compute(norm=True) for k, v in metrics_uniformity.items()}
-            accelerator.log(uniformity)
-            alignment = {'val_epoch_norm_alignment_'+k: v.compute(norm=True) for k, v in metrics_alignment.items()}
-            accelerator.log(alignment)
-            accelerator.log({'val_epoch_norm_unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
-            accelerator.log({'val_epoch_norm_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
+        embeddings = {k:torch.cat(v, dim = 1) for k,v in embeddings.items()}
+        torch.save(embeddings, f"{config.output_dir}/{tv}_embeddings.pt")
 
-            for v in metrics_uniformity.values():
-                v.reset()
-            for v in metrics_alignment.values():
-                v.reset()
+        #Epoch Log
+        uniformity = {'uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
+        accelerator.log(uniformity)
+        alignment = {'alignment_'+k: v.compute() for k, v in metrics_alignment.items()}
+        accelerator.log(alignment)
+        accelerator.log({'unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
+        accelerator.log({'alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
+        uniformity = {'norm_uniformity_'+k: v.compute(norm=True) for k, v in metrics_uniformity.items()}
+        accelerator.log(uniformity)
+        alignment = {'norm_alignment_'+k: v.compute(norm=True) for k, v in metrics_alignment.items()}
+        accelerator.log(alignment)
+        accelerator.log({'norm_unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
+        accelerator.log({'norm_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
+        for v in metrics_uniformity.values():
+            v.reset()
+        for v in metrics_alignment.values():
+            v.reset()
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 accelerator.end_training()
