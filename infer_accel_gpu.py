@@ -63,8 +63,8 @@ accelerator.init_trackers(
 
 # Creating a DataLoader object for iterating over it during the training epochs
 # Both are for test here since we generate inferences on all data
-train_dl = DataLoader( datasets["train"], collate_fn=default_data_collator, batch_size=config.batch_size, shuffle=False)
-eval_dl = DataLoader( datasets["test"], collate_fn=default_data_collator, batch_size=config.batch_size, shuffle=False)
+train_dl = DataLoader( datasets["train"], collate_fn=default_data_collator, batch_size=config.batch_size, drop_last=True, shuffle=False)
+eval_dl = DataLoader( datasets["test"], collate_fn=default_data_collator, batch_size=config.batch_size, drop_last=True, shuffle=False)
 
 accelerator.print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
 accelerator.print(f"Number of non-embedding parameters: {config.n_params_nonemb/10**6}M")
@@ -78,11 +78,12 @@ if accelerator.is_main_process:
 
 logger.info("Start training set inference: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
-model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
-     model, optimizer, train_dl, eval_dl, lr_scheduler
-     )
+#model, train_dl, eval_dl = accelerator.prepare(
+#     model, train_dl, eval_dl
+#     )
+model = accelerator.prepare(model)
 
-assert config.restart:
+assert config.restart
 logger.info(f"Loading saved state from {config.restart}")
 accelerator.load_state(config.restart)
 
@@ -92,32 +93,39 @@ assert world_size == 1
 with torch.no_grad():
     for tv,dl in {'train': train_dl, 'eval': eval_dl}.items():
         embeddings = defaultdict(list)
+        masks = defaultdict(list)
         for idb, batch in tqdm(enumerate(dl)):
             # Training
             batch = move_to(batch, device)
             outputs = model(batch)
             loss = outputs.pop('loss')
             losses = outputs.pop('losses')
+            modality_masks = outputs.pop('modality_sample_mask')
             for k,v in outputs.items():
                 embeddings[k].append(v)
+            for k,v in modality_masks.items():
+                masks[k].append(v)
             # Embedding space metrics
+            """
             for k in metrics_uniformity.keys():
                 if k != 'fusion':
-                   sample_mask = outputs['modality_sample_mask'][k]
+                   sample_mask = modality_masks[k]
                    metrics_uniformity[k].update(outputs[k][sample_mask]) #.detach().to('cpu'))
                 else:
                    metrics_uniformity[k].update(outputs[k]) #.detach().to('cpu'))
             for k in metrics_alignment.keys():
-                sample_mask = outputs['modality_sample_mask'][k]
+                sample_mask = modality_masks[k]
                 metrics_alignment[k].update(outputs[k][sample_mask],#.detach().to('cpu'),
                                                 outputs['fusion'][sample_mask]) #.detach().to('cpu'))
+            """
             accelerator.log({"total_loss": loss.detach().to("cpu")})
-            accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
+            accelerator.log({k: v.detach().to("cpu") for k,v in losses.items() if '|' not in k})
             #Eval looop
-
-        embeddings = {k:torch.cat(v, dim = 1) for k,v in embeddings.items()}
+        masks = {k:torch.cat(v, dim=0) for k,v in masks.items()}
+        torch.save(masks, f"{config.output_dir}/{tv}_masks.pt")
+        embeddings = {k:torch.cat(v, dim = 0) for k,v in embeddings.items()}
         torch.save(embeddings, f"{config.output_dir}/{tv}_embeddings.pt")
-
+        """
         #Epoch Log
         uniformity = {'uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
         accelerator.log(uniformity)
@@ -135,6 +143,7 @@ with torch.no_grad():
             v.reset()
         for v in metrics_alignment.values():
             v.reset()
+        """
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 accelerator.end_training()
