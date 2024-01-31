@@ -1,0 +1,8 @@
+transformers
+accelerate
+datasets
+torchmetrics
+torchmultimodal-nightly
+einops
+wandb
+yacs
