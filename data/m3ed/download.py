@@ -47,8 +47,11 @@ class M3ED_File():
             if not os.path.exists(path):
                 os.makedirs(path)
             filepath = os.path.join(path, filename)
-            print(f"Downloading {filename} into {filepath}")
-            download_file_with_progress(link, filepath)
+            if not os.path.exists(filepath):
+                print(f"Downloading {filename} into {filepath}")
+                download_file_with_progress(link, filepath)
+            else:
+                print(f"{filename} exists in {filepath}")
 
     def check_download(self, to_download):
         if self.download_links is None:
