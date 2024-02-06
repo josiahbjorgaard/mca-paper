@@ -445,6 +445,7 @@ class MFDOOM(nn.Module):
     ):
         super().__init__()
         print(f"Got kwargs: {kwargs}")
+        assert not (everything_at_once and zorro), "Can't do both EaO and Zorro"
         self.batch_size = batch_size
         self.isolated_fusion = isolated_fusion
         self.no_fusion = no_fusion
@@ -468,12 +469,7 @@ class MFDOOM(nn.Module):
         return_token_types_tensor = torch.tensor(return_token_types)
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
 
-        if everything_at_once: #A mean pooling layer with linear projection
-            self.return_tokens = None
-            self.attn_pool = MeanTokenProjectionPool()
-        else: #The attention-based Zorro pooling layer
-            self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
-            self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+
         self.heads = heads
 
         self.return_padding = return_padding
@@ -501,8 +497,16 @@ class MFDOOM(nn.Module):
 
         self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
 
-        if not everything_at_once:
-            attn_mask = self.create_zorro_mask(self.token_types)
+        if everything_at_once: #A mean pooling layer with linear projection for Everything at Once
+            assert no_fusion, "Can't do EaO with fusion tokens"
+            self.return_tokens = None
+            self.attn_pool = MeanTokenProjectionPool(self.token_types, in_dim = dim, out_dim=dim)
+            self.attn_mask = None
+            self.pool_mask = None
+        else: #The attention-based Zorro pooling layer or MFDOOM pooling
+            self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
+            self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+                        attn_mask = self.create_zorro_mask(self.token_types)
             pool_mask = self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor)
             if not zorro: #Zorro doesn't have modal-incomplete fusion channel attention mask
                 attn_mask = self.create_mfdoom_mask(self.token_types, self.fusion_combos, attn_mask)
@@ -511,11 +515,8 @@ class MFDOOM(nn.Module):
                                                             self.fusion_combos,
                                                             return_token_types_tensor,
                                                             pool_mask)
-        else:
-            attn_mask = None
-            pool_mask = None
-        self.register_buffer('attn_mask', attn_mask)
-        self.register_buffer('pool_mask', pool_mask)
+            self.register_buffer('attn_mask', attn_mask)
+            self.register_buffer('pool_mask', pool_mask)
 
         self.loss = MFDOOMPretrainingLoss(self.modality_types,
                                           do_fcl=fcl and not zorro,
