@@ -394,6 +394,27 @@ class MFDOOMPretrainingLoss(nn.Module):
             outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])/nl
         return outputs
 
+class MeanTokenProjectionPool(nn.Module):
+    def __init__(self,
+                 token_types_tensor,
+                 in_dim = 512,
+                 out_dim=512):
+        super().__init__()
+        self.token_types = token_types_tensor.unsqueeze(1).repeat(1, in_dim)
+        self.out_dim=out_dim
+        self.num_token_types = token_types_tensor.unique()
+        self.proj = nn.ModuleList([nn.Linear(in_dim, out_dim) for _ in range(self.num_token_types)])
+
+    def forward(self, batch, key_padding_mask, **kwargs):
+        # Batch is b x t x d and reduction is on
+        # Scatter padded entries into a dummy index and then discard at the end (masked fill part)
+        b, t, d = batch.shape
+        output = torch.zeros(b, self.num_token_types + 1, d, device=batch.device) #Recieving tensor
+        index = self.token_types.masked_fill(key_padding_mask,self.num_token_types + 1).unsqueeze(0).repeat(b, 1, 1)
+        output = output.scatter_reduce(1, index, batch, reduce="mean")
+        for idx, layer in enumerate(self.proj):
+            output[:, idx, :] = layer(output[:, idx, :])
+        return output
 
 class MFDOOM(nn.Module):
     def __init__(
@@ -446,11 +467,12 @@ class MFDOOM(nn.Module):
         self.return_token_types = return_token_types
         return_token_types_tensor = torch.tensor(return_token_types)
         self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
-        self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
 
         if everything_at_once: #A mean pooling layer with linear projection
+            self.return_tokens = None
             self.attn_pool = MeanTokenProjectionPool()
         else: #The attention-based Zorro pooling layer
+            self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
             self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
         self.heads = heads
 
@@ -592,9 +614,13 @@ class MFDOOM(nn.Module):
         # attend and feedforward
         for layer in self.layers:
             tokens = layer(tokens, self.attn_mask, padding)
-        return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
+
         tokens = self.norm(tokens)
-        pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
+        if self.return_tokens: #Standard Zorro/MFDOOM Pooling
+            return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
+            pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
+        else:
+            pooled_tokens = self.attn_pool(tokens, key_padding_mask = padding) #Mean pooling
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss)
         loss['modality_sample_mask']=modality_sample_mask
         return loss #Includes outputs and sample mask
