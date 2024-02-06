@@ -47,6 +47,8 @@ def get_cfg_defaults_train():
     config.bimodal_contrastive = False
     config.non_fusion_fcl = False
     config.fcl = False
+    config.no_fusion = False
+    config.everything_at_once = False
     config.fcl_root = [1,2,3,4,5]
     config.fusion_combos = [5,4]
     config.loss_masking = True
@@ -107,7 +109,9 @@ def get_model_config(config):
         "non_fusion_fcl": config.non_fusion_fcl,
         "fusion_combos": config.fusion_combos,
         "loss_masking": config.loss_masking,
-        "zorro": config.zorro
+        "zorro": config.zorro,
+        "no_fusion": config.no_fusion,
+        "everything_at_once": config.everything_at_once
     }
     return model_config
 
