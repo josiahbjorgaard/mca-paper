@@ -16,6 +16,22 @@ def move_to(obj, device):
   else:
     raise TypeError("Invalid type for move_to")
 
+def copy_batch(obj):
+  if torch.is_tensor(obj):
+    return obj.detach().clone()
+  elif isinstance(obj, dict):
+    res = {}
+    for k, v in obj.items():
+      res[k] = copy_batch(v)
+    return res
+  elif isinstance(obj, list):
+    res = []
+    for v in obj:
+      res.append(copy_batch(v))
+    return res
+  else:
+    raise TypeError("Invalid type for copy_to")
+
 def count_parameters(model,print_summary=False):
     n_param_embedding = 0
     n_param_nonembedding = 0
