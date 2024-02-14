@@ -96,6 +96,7 @@ class TabularEncoder(nn.Module):
         return x, batch['attention_mask']
 
 
+
 class SparseTabularEncoder(nn.Module):
     """Sparse tabular encoder"""
     def __init__(self,
@@ -155,6 +156,36 @@ class SequenceEncoder(nn.Module):
                  ):
         super().__init__()
         self.token_encoder = TokenEncoder(num_embeddings, embedding_dim, padding_idx)
+        self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
+
+    def forward(self, batch) -> Tensor:
+        #print(batch)
+        x_t = self.token_encoder(batch['tokens'])
+        x_p = self.positional_encoder(batch['tokens'])
+        x = x_t + x_p
+        return x, batch['attention_mask']
+
+
+class EmbeddedSequenceEncoder(nn.Module):
+    """
+    Already Embedded Sequence, so variable length but no token embeddings
+    Token embeddings need to be transformed with Linear layer into embedding
+    Space size
+    Using it for the CMU preembedded dataset
+    """
+    def __init__(self,
+                 input_size = 128, #Vocab size
+                 embedding_dim = 512, #size of embedding vector
+                 padding_idx = 0, #padding (no entry) token
+                 dropout = 0.0,
+                 max_tokens = 1024,
+                 **kwargs
+                 ):
+        super().__init__()
+        self.token_encoder = nn.Sequential([
+            nn.Linear(input_size, embedding_dim),
+            nn.Dropout(dropout),
+            ])
         self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
@@ -229,6 +260,7 @@ encoders_dict = {
                 "SequenceEncoder": SequenceEncoder,
                 "TabularEncoder": TabularEncoder,
                 "PatchEncoder": PatchEncoder,
+                "EmbeddedSequenceEncoder": EmbeddedSequenceEncoder,
             }
 
 
@@ -256,6 +288,33 @@ class SequenceCollator:
         if 'values' in data.keys():
             collated_data['values'] = [pad(data, (0, self.pad_len-data.shape[-1]), mode='constant', value=0.0)
                             for data in data['values']]
+        return {k: torch.stack(v) for k,v in collated_data.items()}
+
+
+class EmbeddedSequenceCollator:
+    """
+    FOR PREEMBEDDED SEQUENCE DATA (no token embedding)
+    For dense tabular, input {'data': 3DTensor (batch, index, embedding)} and set pad_len == max length
+    TODO: add truncation
+    """
+    def __init__(self, pad_token=0, pad_len=2048, data_col_name='values', attn_mask=True, truncate=True, **kwargs):
+        self.pad_token = pad_token
+        self.pad_len = pad_len
+        self.attn_mask = attn_mask
+        self.data_col_name = data_col_name
+        self.truncate = truncate
+
+    def __call__(self, data):
+        #print(data)
+        if self.truncate:
+            data = {self.data_col_name: [index[:self.pad_len] for index in data[self.data_col_name]]}
+        collated_data = {
+            self.data_col_name: [pad(index, (0, self.pad_len - index.shape[-1],0,0), mode='constant', value=self.pad_token)
+                      for index in data[self.data_col_name]]}
+        if self.attn_mask:
+            #only need 1D attention mask for each sample
+            collated_data['attention_mask'] = [(padded_index[:,0] == self.pad_token).to(torch.long) for
+                                               padded_index in collated_data[self.data_col_name]]
         return {k: torch.stack(v) for k,v in collated_data.items()}
 
 
@@ -358,7 +417,8 @@ class OldSequenceCollatorWithTargets:
 
 collators = {
     'matrix': MatrixCollator,
-    'sequence': SequenceCollator
+    'sequence': SequenceCollator,
+    'embedded_sequence': EmbeddedSequenceCollator
 }
 
 
