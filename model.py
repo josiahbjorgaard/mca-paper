@@ -350,10 +350,8 @@ class MFDOOMPretrainingLoss(nn.Module):
             outputs['fusion'] = pooled_tokens[:, len(self.modality_names)+1].squeeze(1)
 
         outputs['global_output'] = pooled_tokens[:, -1, :].squeeze(1) #May remove this in the future, placeholder token
-
         if no_loss:
             return outputs
-
         #Need to apply a sample mask for missing modalities
         # don't compute loss for the pair if one of them is missing
         outputs['losses'] = {}
@@ -632,6 +630,7 @@ class MFDOOM(nn.Module):
         tokens, ps = pack(tokens , 'b * d')
         padding, ps = pack(attention_masks, 'b *')
         padding = padding.to(torch.bool)
+        #print(padding.sum(dim=-1))
         # attend and feedforward
         for layer in self.layers:
             tokens = layer(tokens, self.attn_mask, padding)

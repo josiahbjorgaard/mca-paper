@@ -182,6 +182,7 @@ class EmbeddedSequenceEncoder(nn.Module):
                  **kwargs
                  ):
         super().__init__()
+        self.embedding_dim=embedding_dim
         self.token_encoder = nn.Sequential(
             nn.Linear(input_size, embedding_dim),
             nn.Dropout(dropout),
@@ -190,7 +191,11 @@ class EmbeddedSequenceEncoder(nn.Module):
 
     def forward(self, batch) -> Tensor:
         #print(batch)
-        x_t = self.token_encoder(batch['tokens'])
+        to = batch['tokens'][~batch['attention_mask'],:]
+        pred = self.token_encoder(to)
+        x_t = torch.zeros(batch['tokens'].shape[:-1], dtype=pred.dtype, device=pred.device)
+        x_t = x_t.unsqueeze(-1).repeat(1,1,self.embedding_dim)
+        x_t[~batch['attention_mask'],:] = pred 
         x_p = self.positional_encoder(batch['tokens'])
         x = x_t + x_p
         return x, batch['attention_mask']
