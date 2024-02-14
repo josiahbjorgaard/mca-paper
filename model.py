@@ -337,7 +337,6 @@ class MFDOOMPretrainingLoss(nn.Module):
             sample_mask,
             no_loss = False
     ):
-        print(f"{no_loss = }")
         outputs = {modality_name: pooled_tokens[:, i, :].squeeze(1)
                    for i, modality_name in enumerate(self.modality_names)}
 
@@ -638,7 +637,7 @@ class MFDOOM(nn.Module):
             tokens = layer(tokens, self.attn_mask, padding)
 
         tokens = self.norm(tokens)
-        if self.return_tokens: #Standard Zorro/MFDOOM Pooling
+        if self.return_tokens is not None: #Standard Zorro/MFDOOM Pooling
             return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
             pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask, key_padding_mask = padding) + return_tokens
         else:

@@ -182,10 +182,10 @@ class EmbeddedSequenceEncoder(nn.Module):
                  **kwargs
                  ):
         super().__init__()
-        self.token_encoder = nn.Sequential([
+        self.token_encoder = nn.Sequential(
             nn.Linear(input_size, embedding_dim),
             nn.Dropout(dropout),
-            ])
+            )
         self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
@@ -309,12 +309,12 @@ class EmbeddedSequenceCollator:
         if self.truncate:
             data = {self.data_col_name: [index[:self.pad_len] for index in data[self.data_col_name]]}
         collated_data = {
-            self.data_col_name: [pad(index, (0, self.pad_len - index.shape[-1],0,0), mode='constant', value=self.pad_token)
+            "tokens": [pad(index, (0,0,0, self.pad_len - index.shape[-2]), mode='constant', value=self.pad_token)
                       for index in data[self.data_col_name]]}
         if self.attn_mask:
             #only need 1D attention mask for each sample
             collated_data['attention_mask'] = [(padded_index[:,0] == self.pad_token).to(torch.long) for
-                                               padded_index in collated_data[self.data_col_name]]
+                                               padded_index in collated_data["tokens"]]
         return {k: torch.stack(v) for k,v in collated_data.items()}
 
 
