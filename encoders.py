@@ -182,8 +182,11 @@ class EmbeddedSequenceEncoder(nn.Module):
                  **kwargs
                  ):
         super().__init__()
+        self.input_size = input_size
         self.embedding_dim=embedding_dim
         self.token_encoder = nn.Sequential(
+            #nn.BatchNorm1d(input_size),
+            nn.LayerNorm([max_tokens,input_size]),
             nn.Linear(input_size, embedding_dim),
             nn.Dropout(dropout),
             )
@@ -191,11 +194,11 @@ class EmbeddedSequenceEncoder(nn.Module):
 
     def forward(self, batch) -> Tensor:
         #print(batch)
-        to = batch['tokens'][~batch['attention_mask'],:]
-        pred = self.token_encoder(to)
-        x_t = torch.zeros(batch['tokens'].shape[:-1], dtype=pred.dtype, device=pred.device)
-        x_t = x_t.unsqueeze(-1).repeat(1,1,self.embedding_dim)
-        x_t[~batch['attention_mask'],:] = pred 
+        to = batch['tokens'].masked_fill(~batch['attention_mask'].unsqueeze(-1).repeat(1,1,self.input_size).to(torch.bool),0.0)#
+        x_t = self.token_encoder(to)
+        #x_t = torch.zeros(batch['tokens'].shape[:-1], dtype=pred.dtype, device=pred.device)
+        #x_t = x_t.unsqueeze(-1).repeat(1,1,self.embedding_dim)
+        #x_t[~batch['attention_mask'],:] = pred 
         x_p = self.positional_encoder(batch['tokens'])
         x = x_t + x_p
         return x, batch['attention_mask']
@@ -313,6 +316,7 @@ class EmbeddedSequenceCollator:
         #print(data)
         if self.truncate:
             data = {self.data_col_name: [index[:self.pad_len] for index in data[self.data_col_name]]}
+
         collated_data = {
             "tokens": [pad(index, (0,0,0, self.pad_len - index.shape[-2]), mode='constant', value=self.pad_token)
                       for index in data[self.data_col_name]]}

@@ -291,6 +291,7 @@ class MFDOOMPretrainingLoss2(nn.Module):
             outputs['loss'] = sum([torch.nan_to_num(x) for x in loss_list])/nl
         return outputs
 
+
 class MFDOOMPretrainingLoss(nn.Module):
     """
     Pairwise contrastive loss.
@@ -307,6 +308,7 @@ class MFDOOMPretrainingLoss(nn.Module):
             fcl_root = None,
             fusion_combos = None,
             masking = True,
+            separate_modal_loss_fns = False
     ):
         super().__init__()
         self.non_fusion_fcl = non_fusion_fcl
@@ -315,10 +317,12 @@ class MFDOOMPretrainingLoss(nn.Module):
         self.do_fcl = do_fcl
         self.no_fusion = no_fusion
         self.fusion_combos = fusion_combos
+        self.loss_fn = ContrastiveLossWithTemperature()
+        self.loss = ContrastiveLossWithTemperature if separate_modal_loss_fns else lambda: self.loss_fn #If not separate return same instance for all
         if self.do_fcl:
             self.fcl_root = frozenset(fcl_root)
             assert fcl_root in fusion_combos, f"{fcl_root} not in {fusion_combos}"
-            self.fcl_losses = {fusion_combo: ContrastiveLossWithTemperature() for fusion_combo in fusion_combos if fusion_combo != self.fcl_root}
+            self.fcl_losses = {fusion_combo: self.loss() for fusion_combo in fusion_combos if fusion_combo != self.fcl_root}
         else:
             self.fcl_root = None
         if no_fusion:
@@ -328,8 +332,13 @@ class MFDOOMPretrainingLoss(nn.Module):
         else: #Contrast each unmimodal token to fusion
             loss_pairs = [(modality_name, 'fusion') for modality_name in self.modality_names]
 
-        self.losses = {frozenset(pair): ContrastiveLossWithTemperature()
+        self.losses = {frozenset(pair): self.loss()
                        for pair in loss_pairs}
+        
+        #Assertion check for loss if no separate modal loss functions, due to the convoluted approach above
+        if separate_modal_loss_fns:
+            for v in self.losses.values():
+                assert v is self.loss()
 
     def forward(
             self,

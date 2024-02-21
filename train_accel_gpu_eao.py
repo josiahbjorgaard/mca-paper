@@ -56,9 +56,8 @@ model_config = get_model_config(config)
 device = accelerator.device
 
 # Metrics config
-metrics_alignment = {k: Alignment() for k in config.modality_config.keys()}
-metrics_uniformity = {k: Uniformity() for k in config.modality_config.keys()}
-metrics_uniformity['fusion'] = Uniformity() #add fusion token
+metrics_alignment = defaultdict(Alignment) #{k: Alignment() for k in config.modality_config.keys()}
+metrics_uniformity = defaultdict(Uniformity) #{k: Uniformity() for k in config.modality_config.keys()}
 
 # Model
 model = MFDOOM(**model_config)
@@ -71,7 +70,7 @@ if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
-    project_name="MFDOOM_Paper",
+    project_name="MFDOOM_Paper_CMU",
     config=dict(config),
     init_kwargs=init_kwargs
     )
@@ -145,9 +144,9 @@ for epoch in range(config.start_epoch,config.epochs):
                 masks[(k, k2)] = output['modality_sample_mask'][k] * output['modality_sample_mask'][k2]
                 #norm(norm(output[k].clone(), dim=1) + norm(output[k2].clone(), dim=1), dim=1)
         for k1,k2 in combinations(outputs.keys(), 2):
-            print(f"{outputs[k1].shape = } // {outputs[k2].shape = }")
+            #print(f"{outputs[k1].shape = } // {outputs[k2].shape = }")
             mask = masks[k1]*masks[k2]
-            print(mask)
+            #print(mask)
             #if (~mask).sum() == 0:
             #    losses[(k1,k2)] = np.NaN
             #else:
@@ -189,7 +188,6 @@ for epoch in range(config.start_epoch,config.epochs):
     #Epoch end log and checkpoint
     os.makedirs(os.path.join(config.output_dir, str(epoch)), exist_ok=True)
     accelerator.save_state(os.path.join(config.output_dir, str(epoch)))
-    """
     #Eval looop
     if config.run_eval_loop:
         model.eval()
@@ -197,22 +195,54 @@ for epoch in range(config.start_epoch,config.epochs):
             epoch_loss = 0.0
             losses = defaultdict(lambda: torch.Tensor([0.0]).to("cpu"))
             for i, batch in enumerate(tqdm(eval_dl)):
-                outputs = model(batch)
-                loss = outputs['loss']
-                for k, v in outputs['losses'].items():
-                    losses[k] += v.detach().to("cpu")
+                outputs = dict()
+                masks = dict()
+                mods = list(batch.keys())
+                losses = {}
+                for idx, (k,v) in enumerate(batch.items()):
+                    #mask all but one
+                    batch_copy = copy_batch(batch)
+                    mask = [x for x in mods if x not in [k]]
+                    a_batch = move_to(zero_modes(batch_copy, mask), device)
+                    #Need to implement norm or make sure it's normed here
+                    #outputs[k] = norm(model(a_batch)[k].clone(), dim=1)
+                    output = model(a_batch, no_loss=True)
+                    outputs[k] = output[k]
+                    masks[k] = output['modality_sample_mask'][k]
+                    for k2 in mods[idx:]:
+                        mask = [x for x in mods if x not in [k, k2]]
+                        batch_copy = copy_batch(batch)
+                        a_batch = move_to(zero_modes(batch_copy, mask), device)
+                        output = model(a_batch, no_loss=True)
+                        outputs[(k, k2)] = output[k] + output[k2]
+                        masks[(k, k2)] = output['modality_sample_mask'][k] * output['modality_sample_mask'][k2]
+                        ##norm(norm(output[k].clone(), dim=1) + norm(output[k2].clone(), dim=1), dim=1)
+                for k1,k2 in combinations(outputs.keys(), 2):
+                    mask = masks[k1]*masks[k2]
+                    if outputs[k1].isnan().sum() or outputs[k2].isnan().sum():
+                        print("Nan detected")
+                        print(f"{outputs[k1].isnan().sum()}")
+                        print(f"{outputs[k2].isnan().sum()}")
+                        exit()
+                    losses[(k1,k2)] = loss_function(outputs[k1], outputs[k2], mask = mask)
+                # Zero out NaN losses (batches with all masked samples give NaN) and average
+                loss_list = [x for x in losses.values()]
+                loss_mask = ~torch.isnan(loss_tensor)
+                loss_tensor = torch.tensor(loss_list)
+                nl = torch.sum(loss_mask).to(torch.float)
+                if nl == 0.0:
+                    print(f"Warning, there are no losses calculated!!!")
+                    loss = sum([torch.nan_to_num(x) for x in loss_list])
+                else:
+                    loss = sum([torch.nan_to_num(x) for x in loss_list])/nl
+                loss = sum(list(losses.values()))
 
                 # Embedding space metrics
                 for k in metrics_uniformity.keys():
-                    if k != 'fusion':
-                        sample_mask = output['modality_sample_mask'][k]
-                        metrics_uniformity[k].update(outputs[k][sample_mask]) #.detach().to('cpu'))
-                    else:
-                        metrics_uniformity[k].update(outputs[k]) #.detach().to('cpu'))
-                for k in metrics_alignment.keys():
-                    sample_mask = output['modality_sample_mask'][k]
-                    metrics_alignment[k].update(outputs[k][sample_mask],#.detach().to('cpu'),
-                                                outputs['fusion'][sample_mask]) #.detach().to('cpu'))
+                    metrics_uniformity[k].update(outputs[k][masks[k]]) #.detach().to('cpu'))
+                    for k2 in metrics_alignment.keys():
+                        metrics_alignment[k].update(outputs[k][masks[k]],#.detach().to('cpu'),
+                                                outputs[k2][masks[k2]]) #.detach().to('cpu'))
 
                 #Step Log
                 losses["total_loss"] += loss.detach().to("cpu")
@@ -237,7 +267,7 @@ for epoch in range(config.start_epoch,config.epochs):
                 v.reset()
             for v in metrics_alignment.values():
                 v.reset()
-"""
+
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
