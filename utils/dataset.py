@@ -71,6 +71,6 @@ def setup_data(dataset_path, split = 0.1, ds_frac=1.0, ds_seed=42, model = 3, pr
         print(f"Running preprocessing dropout of modalities")
         dataset = batch_predrop(dataset, predrop_config)
     #Do a train test split
-    if split != 1.0 and split:
+    if split and split != 1.0:
         dataset = dataset.train_test_split(split, seed=ds_seed)
     return dataset

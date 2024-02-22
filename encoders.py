@@ -113,7 +113,7 @@ class SparseTabularEncoder(nn.Module):
 
     def forward(self, batch) -> Tensor:
         index = batch['indices']
-        value = batch['values']
+        value = batch['data'] #batch['values']
         x_t = self.token_encoder(index)
         x_v = self.value_encoder(value)
         x = x_t + x_v
@@ -267,6 +267,7 @@ class PatchEncoder(nn.Module):
 encoders_dict = {
                 "SequenceEncoder": SequenceEncoder,
                 "TabularEncoder": TabularEncoder,
+                "SparseTabularEncoder": SparseTabularEncoder,
                 "PatchEncoder": PatchEncoder,
                 "EmbeddedSequenceEncoder": EmbeddedSequenceEncoder,
             }
@@ -280,12 +281,12 @@ class SequenceCollator:
     For sparse tabular, input {'index':Tensor, 'data': Tensor} and set pad_len == padded length
     TODO: add truncation
     """
-    def __init__(self, pad_token=0, pad_len=2048, data_col_name='indices', attn_mask=True,  **kwargs):
+    def __init__(self, pad_token=0, pad_len=2048, data_col_name='indices', other_col='data', attn_mask=True,  **kwargs):
         self.pad_token = pad_token
         self.pad_len = pad_len
         self.attn_mask = attn_mask
         self.data_col_name = data_col_name
-
+        self.other_col = other_col
     def __call__(self, data):
         #print(data)
         collated_data = {
@@ -293,9 +294,9 @@ class SequenceCollator:
                       for index in data[self.data_col_name]]}
         if self.attn_mask:
             collated_data['attention_mask'] = [(padded_index == self.pad_token).to(torch.long) for padded_index in collated_data[self.data_col_name]]
-        if 'values' in data.keys():
-            collated_data['values'] = [pad(data, (0, self.pad_len-data.shape[-1]), mode='constant', value=0.0)
-                            for data in data['values']]
+        if self.other_col in data.keys():
+            collated_data[self.other_col] = [pad(index, (0, self.pad_len-index.shape[-1]), mode='constant', value=0.0)
+                            for index in data[self.other_col]]
         return {k: torch.stack(v) for k,v in collated_data.items()}
 
 
