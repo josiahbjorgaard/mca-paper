@@ -107,7 +107,7 @@ with torch.no_grad():
                 embeddings[k].append(v.detach().cpu())
             for k,v in modality_masks.items():
                 masks[k].append(v.detach().cpu())
-            input_data.append(labels['data'].detach().cpu())
+            labels.append(labels['data'].detach().cpu())
                 # Embedding space metrics
             """
             for k in metrics_uniformity.keys():
@@ -128,8 +128,8 @@ with torch.no_grad():
         torch.save(masks, f"{config.output_dir}/{tv}_masks.pt")
         embeddings = {k:torch.cat(v, dim = 0) for k,v in embeddings.items()}
         torch.save(embeddings, f"{config.output_dir}/{tv}_embeddings.pt")
-        input_data = {k:torch.cat(v, dim = 0) for k,v in input_data.items()}
-        torch.save(input_data, f"{config.output_dir}/{tv}_input_data.pt")
+        labels = torch.cat(labels, dim = 0)
+        torch.save(labels, f"{config.output_dir}/{tv}_labels.pt")
         """
         #Epoch Log
         uniformity = {'uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
