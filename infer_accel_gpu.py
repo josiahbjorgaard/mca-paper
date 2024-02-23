@@ -36,7 +36,7 @@ datasets = setup_data(config.dataset,
                       predrop_config=config.modality_config)
 
 # Collator
-default_data_collator = MultimodalCollator(config.modality_config)
+default_data_collator = MultimodalCollator(config.modality_config, labels="Labels")
 model_config = get_model_config(config)
 device = accelerator.device
 
@@ -94,18 +94,21 @@ with torch.no_grad():
     for tv,dl in {'train': train_dl, 'eval': eval_dl}.items():
         embeddings = defaultdict(list)
         masks = defaultdict(list)
+        input_data = list()
         for idb, batch in tqdm(enumerate(dl)):
             # Training
+            labels = batch['Labels']
             batch = move_to(batch, device)
             outputs = model(batch)
             loss = outputs.pop('loss')
             losses = outputs.pop('losses')
             modality_masks = outputs.pop('modality_sample_mask')
             for k,v in outputs.items():
-                embeddings[k].append(v)
+                embeddings[k].append(v.detach().cpu())
             for k,v in modality_masks.items():
-                masks[k].append(v)
-            # Embedding space metrics
+                masks[k].append(v.detach().cpu())
+            input_data.append(labels['data'].detach().cpu())
+                # Embedding space metrics
             """
             for k in metrics_uniformity.keys():
                 if k != 'fusion':
@@ -125,6 +128,8 @@ with torch.no_grad():
         torch.save(masks, f"{config.output_dir}/{tv}_masks.pt")
         embeddings = {k:torch.cat(v, dim = 0) for k,v in embeddings.items()}
         torch.save(embeddings, f"{config.output_dir}/{tv}_embeddings.pt")
+        input_data = {k:torch.cat(v, dim = 0) for k,v in input_data.items()}
+        torch.save(input_data, f"{config.output_dir}/{tv}_input_data.pt")
         """
         #Epoch Log
         uniformity = {'uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}

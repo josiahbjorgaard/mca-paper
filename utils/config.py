@@ -15,6 +15,7 @@ def get_cfg_defaults_train():
     config.modality_configs = CN(new_allowed=True)
     config.predrop = False
     config.restart = "" #'training_output_21_31_23_10_2023'
+    config.wandb_name = "No Name"
     config.wandb_restart = ""
     config.epochs = 3
     config.start_epoch = 0

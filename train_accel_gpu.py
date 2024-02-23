@@ -25,7 +25,7 @@ config = training_config(sys.argv[1])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-torch.manual_seed(0)
+torch.manual_seed(config.seed)
 
 
 datasets = setup_data(config.dataset,
@@ -56,7 +56,7 @@ if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
-    project_name="MFDOOM_Velocity",
+    project_name=config.wandb_name,
     config=dict(config),
     init_kwargs=init_kwargs
     )

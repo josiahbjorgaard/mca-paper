@@ -11,8 +11,10 @@ modality_config:
 num_fusion_tokens: 88
 ds_frac: 1.0
 predrop: false
+seed: 43
 batch_size: 8
 lr: 0.00001
+wandb_name: "MFDOOM_Paper_CMU"                                    
 layers: 5 #12
 lr_scheduler_type: "constant_with_warmup"
 epochs: 128

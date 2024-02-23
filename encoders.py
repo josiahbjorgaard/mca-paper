@@ -437,12 +437,12 @@ class MultimodalCollator:
     Configurable collator for multimodal data with missing modalities
     Could be used to mask modalities
     """
-    def __init__(self, modality_config, **kwargs):
+    def __init__(self, modality_config, labels=None,**kwargs):
         self.modality_collators = {modality_name: collators[config['type']](**config)
                                    for modality_name, config in modality_config.items()}
         #self.modality_dropout = {modality_name: BatchDropout(config['padding'], config['dropout']) if config['dropout'] else None
         #                               for modality_name, config in modality_config.items() if not config['predrop']}
-
+        self.labels=labels
 
     def __call__(self, batch):
         assert self.modality_collators.keys() <= batch[0].keys(), f"{self.modality_collators.keys()} - {batch[0].keys()}"
@@ -452,8 +452,15 @@ class MultimodalCollator:
                 v = b[k]
                 for k2, v2 in v.items():
                     d[k][k2].append(v2)
-        batch = {k: self.modality_collators[k](v) for k, v in d.items()} #Collate
-        #batch = {k: self.modality_dropout[k](v) if self.modality_dropout[k] else v for k, v in batch.items()} #Dropout
-        return batch
+                    
+        batch_out = {k: self.modality_collators[k](v) for k, v in d.items()} #Collate
+        #batch = {k: self.modality_dropout[k](v) if self.modality_dropout[k] else v for k, v in batch.items()} #Dropou
+        if self.labels:
+            for b in batch:
+                v = b[self.labels]
+                for k2, v2 in v.items():
+                    d[self.labels][k2].append(v2)
+            batch_out[self.labels] = {k: torch.stack(v) for k,v in d[self.labels].items()}
+        return batch_out
 
 
