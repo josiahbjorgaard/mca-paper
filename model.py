@@ -406,7 +406,6 @@ class MFDOOM(nn.Module):
                 self.return_tokens = None
                 self.attn_pool = MeanTokenProjectionPool(self.token_types, in_dim = dim, out_dim=dim, projection=False)
             else:
-                raise Exception("Shouldn't be doing trainable pooling here")
                 self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
                 self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
             attn_mask = self.create_zorro_mask(self.token_types)

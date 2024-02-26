@@ -24,8 +24,8 @@ def zero_modes(batch, modes_to_zero):
     """
     Mask out modalities in a batch - needs custom changes for each dataset
     """
-    for mode in modes_to_zero:
-        batch[mode]['attention_mask']=torch.ones_like(batch[mode]['attention_mask'])
+    for minibatchidx, mode in enumerate(modes_to_zero):
+        batch[mode]['attention_mask'][minibatchidx,:] = 1
     return batch
 from accelerate import DistributedDataParallelKwargs
 
@@ -129,7 +129,7 @@ for epoch in range(config.start_epoch,config.epochs):
         mods = list(batch.keys())
         losses = {}
         batch_copy = copy_batch(batch)
-        mask = [random.choice(mods)]#[x for x in mods if x not in [random.choice(mods)]] #The modalities to keep
+        mask = [random.choice(mods) for i in range(config.batch_size)]#[x for x in mods if x not in [random.choice(mods)]] #The modalities to keep
         a_batch = move_to(zero_modes(batch_copy, mask), device)
         output = model(a_batch, no_loss=True)
         #output = model(batch, no_loss=True)
