@@ -17,29 +17,28 @@ from utils.config import training_config, get_model_config
 from utils.dataset import setup_data
 from utils.metrics import Alignment, Uniformity
 from accelerate import Accelerator
-from torch_ema import ExponentialMovingAverage
+#from torch_ema import ExponentialMovingAverage
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 torch.autograd.set_detect_anomaly(True)
 def zero_modes(batch, modes_to_zero):
     """
     Mask out modalities in a batch - needs custom changes for each dataset
     """
     for mode in modes_to_zero:
-        if mode == 'aud':
-            batch[mode]['values'] = torch.ones_like(batch[mode]['values'])*-10000
-        elif mode == 'vid':
-            batch[mode]['attention_mask']=torch.ones_like(batch[mode]['attention_mask'])
-        else:
-            batch[mode]['attention_mask']=torch.ones_like(batch[mode]['attention_mask'])
+        batch[mode]['attention_mask']=torch.ones_like(batch[mode]['attention_mask'])
     return batch
+from accelerate import DistributedDataParallelKwargs
 
-accelerator = Accelerator(log_with="wandb")
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+accelerator = Accelerator(kwargs_handlers=[ddp_kwargs], log_with="wandb")
+#accelerator = Accelerator(log_with="wandb")
 
 config = training_config(sys.argv[1])
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-torch.manual_seed(0)
+torch.manual_seed(config.seed)
 
 
 datasets = setup_data(config.dataset,
@@ -60,6 +59,8 @@ metrics_uniformity = defaultdict(Uniformity) #{k: Uniformity() for k in config.m
 
 # Model
 model = MFDOOM(**model_config)
+decay = 0.995
+target_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(decay))
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
@@ -69,7 +70,7 @@ if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
-    project_name="MFDOOM_Paper_CMU",
+    project_name="MFDOOM_Paper_CMU_JEPA",
     config=dict(config),
     init_kwargs=init_kwargs
     )
@@ -100,11 +101,12 @@ logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
 
 loss_function = nn.L1Loss() #ContrastiveLossWithTemperature()
 
-predictor_ema = ExponentialMovingAverage(model.parameters(), decay=0.995)
+#ema = ExponentialMovingAverage(model.parameters(), decay=0.995)
 
-model, optimizer, train_dl, eval_dl, lr_scheduler, loss_function, predictor_ema = accelerator.prepare(
-     model, optimizer, train_dl, eval_dl, lr_scheduler, loss_function, predictor_ema
+model, optimizer, train_dl, eval_dl, lr_scheduler, loss_function = accelerator.prepare(
+     model, optimizer, train_dl, eval_dl, lr_scheduler, loss_function
      )
+#ema.to(accelerator.device)
 
 if config.restart:
     logger.info(f"Loading saved state from {config.restart}")
@@ -116,6 +118,9 @@ if config.restart:
 # Start model training and defining the training loop
 
 model.train()
+target_model.to(accelerator.device)
+target_model.eval()
+#print(model)
 world_size = torch.cuda.device_count()
 for epoch in range(config.start_epoch,config.epochs):
     for idb, batch in tqdm(enumerate(train_dl)):
@@ -123,13 +128,18 @@ for epoch in range(config.start_epoch,config.epochs):
         #In JEPA we'll randomly mask one or more of the modalities to the predictor
         mods = list(batch.keys())
         losses = {}
-        output = model(batch, no_loss=True)
         batch_copy = copy_batch(batch)
-        mask = [x for x in mods if x not in [random.choice(mods)]] #The modalities to keep
+        mask = [random.choice(mods)]#[x for x in mods if x not in [random.choice(mods)]] #The modalities to keep
         a_batch = move_to(zero_modes(batch_copy, mask), device)
-        with predictor_ema.average_parameters():
-            predictor_output = model(a_batch, no_loss=True)
-        losses['jepa_l1'] = loss_function(output[k1], predictor_output[k2]) #, mask = mask)
+        output = model(a_batch, no_loss=True)
+        #output = model(batch, no_loss=True)
+        with torch.no_grad():
+            target_output = target_model(batch, no_loss=True)
+        for mod in mods:
+            losses[f'jepa_l1_{mod}'] = loss_function(
+                    output['fusion'], 
+                    target_output[mod]
+                    )
         loss = sum(list(losses.values()))
         optimizer.zero_grad()
         accelerator.backward(loss)
@@ -137,18 +147,17 @@ for epoch in range(config.start_epoch,config.epochs):
             accelerator.clip_grad_norm_(model.parameters(), config.clip)
         optimizer.step()
         lr_scheduler.step()
-        predictor_ema.update()
+        target_model.update_parameters(model)
 
         # Log and checkpoint
         if idb % config.n_step_checkpoint == 0:
             accelerator.save_state(config.output_dir)
         if accelerator.is_main_process:
             progress_bar.update(world_size)
-        accelerator.log({"total_loss": loss.detach().to("cpu")})
-        #accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
-        accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
-                         "grad_norm": get_grad_norm(model).to("cpu")})
-        accelerator.log({"lr": optimizer.param_groups[0]['lr']})
+        accelerator.log({"total_loss": loss.detach().to("cpu"),
+                         "param_norm": get_param_norm(model).to("cpu"),
+                         "grad_norm": get_grad_norm(model).to("cpu"),
+                         "lr": optimizer.param_groups[0]['lr']} | {k: v.detach().to("cpu") for k,v in losses.items()})
 
     #Epoch end log and checkpoint
     os.makedirs(os.path.join(config.output_dir, str(epoch)), exist_ok=True)
@@ -159,35 +168,34 @@ for epoch in range(config.start_epoch,config.epochs):
         with torch.no_grad():
             epoch_loss = 0.0
             losses = defaultdict(lambda: torch.Tensor([0.0]).to("cpu"))
+            total_losses = defaultdict(lambda: torch.Tensor([0.0]).to("cpu"))
             for i, batch in enumerate(tqdm(eval_dl)):
                 # Training
                 # In JEPA we'll randomly mask one or more of the modalities to the predictor
-                outputs = dict()
-                masks = dict()
                 mods = list(batch.keys())
-                losses = {}
-                output = model(batch, no_loss=True)
                 batch_copy = copy_batch(batch)
-                mask = [x for x in mods if x not in [random.choice(mods)]]  # The modalities to keep
+                mask = [random.choice(mods)]
                 a_batch = move_to(zero_modes(batch_copy, mask), device)
-                with predictor_ema.average_parameters():
-                    predictor_output = model(a_batch, no_loss=True)
-                losses['jepa_l1'] = loss_function(output[k1], predictor_output[k2])  # , mask = mask)
+                output = model(a_batch, no_loss=True)
+                for mod in mods:
+                    losses[f'jepa_l1_{mod}'] = loss_function(output['fusion'],output[mod]).to("cpu")
                 loss = sum(list(losses.values()))
 
                 # Embedding space metrics
-                for k in metrics_uniformity.keys():
-                    metrics_uniformity[k].update(output[k]) #.detach().to('cpu'))
-                    for k2 in metrics_alignment.keys():
-                        metrics_alignment[k].update(output[k],#.detach().to('cpu'),
-                                                predictor_output[k]) #.detach().to('cpu'))
+                for k in batch.keys(): #metrics_uniformity.keys():
+                    metrics_uniformity[k].update(target_output[k]) #.detach().to('cpu'))
+                    for k2 in batch.keys(): #metrics_alignment.keys():
+                        metrics_alignment[k].update(target_output[k],#.detach().to('cpu'),
+                                                target_output[k2]) #.detach().to('cpu'))
 
                 #Step Log
-                losses["total_loss"] += loss.detach().to("cpu")
-                accelerator.log({"val_step_total_loss":loss.to("cpu")})
-                accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items() if '|' not in k})
+                for k in losses.keys():
+                    total_losses[k] += losses[k].detach().to("cpu")
+                total_losses['total_loss']+=loss.to("cpu")
+                accelerator.log({"val_step_total_loss":loss.to("cpu")} | {f"val_{k}":v.to("cpu") for k,v in losses.items()})
+                #accelerator.log({"val_step_"+k: v.detach().to("cpu") for k, v in outputs['losses'].items() if '|' not in k})
             #Epoch Log
-            accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items() if '|' not in k})
+            accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in total_losses.items() if '|' not in k})
             uniformity = {'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
             accelerator.log(uniformity)
             alignment = {'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()}

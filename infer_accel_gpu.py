@@ -94,10 +94,10 @@ with torch.no_grad():
     for tv,dl in {'train': train_dl, 'eval': eval_dl}.items():
         embeddings = defaultdict(list)
         masks = defaultdict(list)
-        input_data = list()
+        labels = list()
         for idb, batch in tqdm(enumerate(dl)):
             # Training
-            labels = batch['Labels']
+            batch_labels = batch['Labels']
             batch = move_to(batch, device)
             outputs = model(batch)
             loss = outputs.pop('loss')
@@ -107,7 +107,7 @@ with torch.no_grad():
                 embeddings[k].append(v.detach().cpu())
             for k,v in modality_masks.items():
                 masks[k].append(v.detach().cpu())
-            labels.append(labels['data'].detach().cpu())
+            labels.append(batch_labels['data'].detach().cpu())
                 # Embedding space metrics
             """
             for k in metrics_uniformity.keys():

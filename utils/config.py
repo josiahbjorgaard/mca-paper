@@ -35,6 +35,7 @@ def get_cfg_defaults_train():
     config.ds_frac = 1.0
     config.ds_seed = 42
     config.seed = 42
+    config.mean_pool = False
     config.dropout = 0.1
     config.clip = 0.0
     config.isolate_fusion_tokens = True
@@ -112,7 +113,8 @@ def get_model_config(config):
         "loss_masking": config.loss_masking,
         "zorro": config.zorro,
         "no_fusion": config.no_fusion,
-        "everything_at_once": config.everything_at_once
+        "everything_at_once": config.everything_at_once,
+        "mean_pool": config.mean_pool
     }
     return model_config
 

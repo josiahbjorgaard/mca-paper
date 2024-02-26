@@ -186,21 +186,31 @@ class EmbeddedSequenceEncoder(nn.Module):
         self.embedding_dim=embedding_dim
         self.token_encoder = nn.Sequential(
             #nn.BatchNorm1d(input_size),
-            nn.LayerNorm([max_tokens,input_size]),
+            nn.LayerNorm(input_size),
             nn.Linear(input_size, embedding_dim),
-            nn.Dropout(dropout),
+            #nn.Dropout(dropout),
+            nn.LayerNorm(embedding_dim)
             )
         self.positional_encoder = PositionalEncoder(embedding_dim, dropout, max_tokens)
 
     def forward(self, batch) -> Tensor:
-        #print(batch)
-        to = batch['tokens'].masked_fill(~batch['attention_mask'].unsqueeze(-1).repeat(1,1,self.input_size).to(torch.bool),0.0)#
+        if (~batch['tokens'].isfinite()).sum():
+            raise Exception(f"Tokens {batch['tokens'][~batch['tokens'].isfinite()]} are not finite")
+        to = batch['tokens'].masked_fill(batch['attention_mask'].unsqueeze(-1).repeat(1,1,self.input_size).to(torch.bool),0.0)
+        if (~to.isfinite()).sum():
+            raise Exception(f"Bad values in tokens {(~to.isfinite()).sum()}")
         x_t = self.token_encoder(to)
+        if (~x_t.isfinite()).sum():
+            raise Exception(f"Encoder transform resulted in {(~x_t.isfinite()).sum()} non-finite values")
         #x_t = torch.zeros(batch['tokens'].shape[:-1], dtype=pred.dtype, device=pred.device)
         #x_t = x_t.unsqueeze(-1).repeat(1,1,self.embedding_dim)
         #x_t[~batch['attention_mask'],:] = pred 
         x_p = self.positional_encoder(batch['tokens'])
         x = x_t + x_p
+        if x.isnan().sum().sum():
+            print(f"{x_t.isnan().sum().sum() = }")
+            print(f"{x_p.isnan().sum().sum() = }")
+            raise Exception("NaN x")
         return x, batch['attention_mask']
 
 
@@ -288,7 +298,6 @@ class SequenceCollator:
         self.data_col_name = data_col_name
         self.other_col = other_col
     def __call__(self, data):
-        #print(data)
         collated_data = {
             self.data_col_name: [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
                       for index in data[self.data_col_name]]}
@@ -306,25 +315,27 @@ class EmbeddedSequenceCollator:
     For dense tabular, input {'data': 3DTensor (batch, index, embedding)} and set pad_len == max length
     TODO: add truncation
     """
-    def __init__(self, pad_token=0, pad_len=2048, data_col_name='values', attn_mask=True, truncate=True, **kwargs):
+    def __init__(self, pad_token=-1, fill_value = 0.0, pad_len=2048, data_col_name='values', attn_mask=True, truncate=True, clean=True, **kwargs):
         self.pad_token = pad_token
+        self.fill_value = fill_value
         self.pad_len = pad_len
         self.attn_mask = attn_mask
         self.data_col_name = data_col_name
         self.truncate = truncate
+        self.clean = clean
 
     def __call__(self, data):
-        #print(data)
         if self.truncate:
             data = {self.data_col_name: [index[:self.pad_len] for index in data[self.data_col_name]]}
-
-        collated_data = {
-            "tokens": [pad(index, (0,0,0, self.pad_len - index.shape[-2]), mode='constant', value=self.pad_token)
-                      for index in data[self.data_col_name]]}
+        collated_data = {}
+        if self.clean:
+            data = {self.data_col_name: [index.nan_to_num() for index in data[self.data_col_name]]}
         if self.attn_mask:
             #only need 1D attention mask for each sample
-            collated_data['attention_mask'] = [(padded_index[:,0] == self.pad_token).to(torch.long) for
-                                               padded_index in collated_data["tokens"]]
+            collated_data['attention_mask'] = [pad(torch.zeros(index.shape[0],device=index.device), (0, self.pad_len - index.shape[0]), mode='constant', value=1).to(torch.bool)
+                                                for index in data[self.data_col_name]]
+        collated_data["tokens"]= [pad(index, (0,0,0, self.pad_len - index.shape[-2]), mode='constant', value=self.fill_value)
+                      for index in data[self.data_col_name]]
         return {k: torch.stack(v) for k,v in collated_data.items()}
 
 
