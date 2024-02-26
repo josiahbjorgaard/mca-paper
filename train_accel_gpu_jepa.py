@@ -135,12 +135,24 @@ for epoch in range(config.start_epoch,config.epochs):
         #output = model(batch, no_loss=True)
         with torch.no_grad():
             target_output = target_model(batch, no_loss=True)
+        """
+        #L1 vs all (average fusion for all modalities)
         for mod in mods:
             losses[f'jepa_l1_{mod}'] = loss_function(
                     output['fusion'], 
                     target_output[mod]
                     )
+        
         loss = sum(list(losses.values()))
+        """
+        #L1 for recovering only the missing modality
+        targets = []
+        for idx,mod in enumerate(mask):
+            targets.append(target_output[mod][idx,:].unsqueeze(0))
+        targets = torch.cat(targets, dim=0)
+        losses[f'jepa_l1'] = loss_function(output['fusion'],targets)
+        loss = losses[f'jepa_l1']
+
         optimizer.zero_grad()
         accelerator.backward(loss)
         if config.clip:
@@ -177,9 +189,17 @@ for epoch in range(config.start_epoch,config.epochs):
                 mask = [random.choice(mods)]
                 a_batch = move_to(zero_modes(batch_copy, mask), device)
                 output = model(a_batch, no_loss=True)
-                for mod in mods:
-                    losses[f'jepa_l1_{mod}'] = loss_function(output['fusion'],output[mod]).to("cpu")
-                loss = sum(list(losses.values()))
+                target_output = target_model(batch, no_loss=True)
+                #for mod in mods:
+                #    losses[f'jepa_l1_{mod}'] = loss_function(output['fusion'],output[mod]).to("cpu")
+                #loss = sum(list(losses.values()))
+                #L1 for recovering only the missing modality
+                targets = []
+                for idx,mod in enumerate(mask):
+                    targets.append(target_output[mod][idx,:].unsqueeze(0))
+                targets = torch.cat(targets, dim=0)
+                losses[f'jepa_l1'] = loss_function(output['fusion'],targets)
+                loss = losses[f'jepa_l1']
 
                 # Embedding space metrics
                 for k in batch.keys(): #metrics_uniformity.keys():
