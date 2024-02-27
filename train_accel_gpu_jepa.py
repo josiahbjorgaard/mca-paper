@@ -15,7 +15,7 @@ from encoders import MultimodalCollator
 from utils.training import get_param_norm, get_grad_norm, count_parameters, copy_batch, move_to
 from utils.config import training_config, get_model_config
 from utils.dataset import setup_data
-from utils.metrics import Alignment, Uniformity
+from utils.metrics import Alignment, Uniformity, rank_metrics
 from accelerate import Accelerator
 #from torch_ema import ExponentialMovingAverage
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn

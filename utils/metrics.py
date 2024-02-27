@@ -3,6 +3,7 @@ from torch import Tensor
 from torchmetrics import Metric
 from torchmetrics.utilities.data import dim_zero_cat
 from torch.nn.functional import normalize
+from torch import nn
 
 #from torchmetrics.utilities import dim_zero_cat
 
@@ -67,3 +68,38 @@ class Uniformity(Metric):
         # parse inputs
         preds = dim_zero_cat(self.preds)
         return lunif(preds, self.t, norm)
+
+#TBD
+def compute_cosines(embedding, embeddings):
+    #for k,v in embeddings.items():
+    cos0 = torch.nn.CosineSimilarity(dim=1)
+    return cos0(embedding.unsqueeze(0).repeat(embeddings.shape[0],1), embeddings)
+
+def get_rank(x, indices):
+    vals = x[range(len(x)), indices]
+    return (x > vals[:, None]).long().sum(1)
+
+def get_rank_metrics(embeddings, modality, fusion="fusion"):
+    c=list()
+    #xc=list()
+    idx = list()
+    batch_size = embeddings[modality].shape[0]
+    #print(e[modality].shape)
+    for i in range(batch_size):
+        mx=m[modality][i]
+        if not mx:
+            pass
+        idx.append(i)
+        x=embeddings[modality][i,:] #.shape
+        #xx=e['pt']
+        #xc.append(compute_recall(x,xx).topk(10))
+        y=embeddings[fusion]#.shape
+        c.append(compute_cosines(x,y))
+        #print(c[i].topk(25))
+        #_=plt.hist(c.cpu(), bins=1000, log=True)
+    ranks = get_rank(torch.stack(c), torch.tensor(idx))
+    median_rank = ranks.median()
+    r1 = sum(ranks == 0)/len(ranks)
+    r5 = sum(ranks < 5)/len(ranks)
+    r10 = sum(ranks < 10)/len(ranks)
+    return median_rank, r1, r5, r10

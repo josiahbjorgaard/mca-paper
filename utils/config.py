@@ -127,3 +127,44 @@ def dump_configs(config, output_dir):
         with redirect_stdout(f): print(config.dump())
     with open(os.path.join(output_dir,'model_config.json'),'w') as f:
         json.dump(get_model_config(config), f)
+
+def get_cfg_defaults_embedding_eval():
+    """
+    Default config options for training
+    """
+    config = CN(new_allowed=True)
+    config.embedding_dir = ""
+    config.task = 0
+    config.loss_type = "L1"
+    config.model_type = "linear"
+    config.hidden_size = 256
+    config.dropout = 0.1
+    config.wandb_name = "Embeddings Eval"
+    config.lr = 1e-5
+    config.lr_scheduler_type = "cosine"
+    config.num_warmup_steps = 1000
+    config.rank_metrics = True
+    config.epochs = 1024
+    config.clip = 2.0
+    config.metric = "PCC"
+    config.output_dir = ""
+    return config.clone()
+
+def embedding_eval_config(filename):
+    config = get_cfg_defaults_embedding_eval()
+    with open(filename, "r") as stream:
+        config_dict = yaml.safe_load(stream)
+    new_config = CN(config_dict)
+    if not config.output_dir:
+        output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
+        config.output_dir = output_dir
+        i = 1
+        while os.path.isdir(config.output_dir):
+            config.output_dir = output_dir + f'_{i}'
+            i+=1
+    print(new_config)
+    #config.merge_from_file(filename)
+    config.merge_from_other_cfg(new_config)
+    dump_configs(config, config.output_dir)
+    #config.freeze()
+    return config
