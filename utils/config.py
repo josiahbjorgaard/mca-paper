@@ -55,6 +55,8 @@ def get_cfg_defaults_train():
     config.fusion_combos = [5,4]
     config.loss_masking = True
     config.return_logits = True
+    config.ema_decay = 0.998
+    config.jepa_all = False
     #If config.restart, will reset all config items to checkpoint yaml
     return config.clone()
 

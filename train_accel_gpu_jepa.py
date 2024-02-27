@@ -59,7 +59,7 @@ metrics_uniformity = defaultdict(Uniformity) #{k: Uniformity() for k in config.m
 
 # Model
 model = MFDOOM(**model_config)
-decay = 0.995
+decay = config.ema_decay
 target_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(decay))
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
@@ -135,24 +135,24 @@ for epoch in range(config.start_epoch,config.epochs):
         #output = model(batch, no_loss=True)
         with torch.no_grad():
             target_output = target_model(batch, no_loss=True)
-        """
+        #"""
+        if config.jepa_all:
         #L1 vs all (average fusion for all modalities)
-        for mod in mods:
-            losses[f'jepa_l1_{mod}'] = loss_function(
-                    output['fusion'], 
-                    target_output[mod]
-                    )
-        
-        loss = sum(list(losses.values()))
-        """
-        #L1 for recovering only the missing modality
-        targets = []
-        for idx,mod in enumerate(mask):
-            targets.append(target_output[mod][idx,:].unsqueeze(0))
-        targets = torch.cat(targets, dim=0)
-        losses[f'jepa_l1'] = loss_function(output['fusion'],targets)
-        loss = losses[f'jepa_l1']
-
+            for mod in mods:
+                losses[f'jepa_l1_{mod}'] = loss_function(
+                        output['fusion'], 
+                        target_output[mod]
+                        )
+            
+            loss = sum(list(losses.values()))
+        else:
+            #L1 for recovering only the missing modality
+            targets = []
+            for idx,mod in enumerate(mask):
+                targets.append(target_output[mod][idx,:].unsqueeze(0))
+            targets = torch.cat(targets, dim=0)
+            losses[f'jepa_l1'] = loss_function(output['fusion'],targets)
+            loss = losses[f'jepa_l1']
         optimizer.zero_grad()
         accelerator.backward(loss)
         if config.clip:
@@ -184,23 +184,26 @@ for epoch in range(config.start_epoch,config.epochs):
             for i, batch in enumerate(tqdm(eval_dl)):
                 # Training
                 # In JEPA we'll randomly mask one or more of the modalities to the predictor
-                mods = list(batch.keys())
+                mask = [random.choice(mods) for i in range(config.batch_size)]#
                 batch_copy = copy_batch(batch)
                 mask = [random.choice(mods)]
                 a_batch = move_to(zero_modes(batch_copy, mask), device)
                 output = model(a_batch, no_loss=True)
                 target_output = target_model(batch, no_loss=True)
-                #for mod in mods:
-                #    losses[f'jepa_l1_{mod}'] = loss_function(output['fusion'],output[mod]).to("cpu")
-                #loss = sum(list(losses.values()))
-                #L1 for recovering only the missing modality
-                targets = []
-                for idx,mod in enumerate(mask):
-                    targets.append(target_output[mod][idx,:].unsqueeze(0))
-                targets = torch.cat(targets, dim=0)
-                losses[f'jepa_l1'] = loss_function(output['fusion'],targets)
-                loss = losses[f'jepa_l1']
 
+                if config.jepa_all:
+                #Between each modality (all)
+                    for mod in mods:
+                        losses[f'jepa_l1_{mod}'] = loss_function(output['fusion'],target_output[mod]).to("cpu")
+                    loss = sum(list(losses.values()))
+                else:
+                #L1 for recovering only the missing modality
+                    targets = []
+                    for idx,mod in enumerate(mask):
+                        targets.append(target_output[mod][idx,:].unsqueeze(0))
+                    targets = torch.cat(targets, dim=0)
+                    losses[f'jepa_l1'] = loss_function(output['fusion'],targets)
+                    loss = losses[f'jepa_l1']
                 # Embedding space metrics
                 for k in batch.keys(): #metrics_uniformity.keys():
                     metrics_uniformity[k].update(target_output[k]) #.detach().to('cpu'))
