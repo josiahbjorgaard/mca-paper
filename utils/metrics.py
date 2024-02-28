@@ -4,7 +4,7 @@ from torchmetrics import Metric
 from torchmetrics.utilities.data import dim_zero_cat
 from torch.nn.functional import normalize
 from torch import nn
-
+from tqdm import tqdm
 #from torchmetrics.utilities import dim_zero_cat
 
 # Below is directly from Wang and Isola 2021 Understanding Contrastive Rep Learning...
@@ -79,24 +79,16 @@ def get_rank(x, indices):
     vals = x[range(len(x)), indices]
     return (x > vals[:, None]).long().sum(1)
 
-def get_rank_metrics(embeddings, modality, fusion="fusion"):
+def get_rank_metrics(embeddings, modality, fusion="fusion", device="cuda"):
     c=list()
-    #xc=list()
     idx = list()
+    embeddings = {k:v.to(device) for k,v in embeddings.items()}
     batch_size = embeddings[modality].shape[0]
-    #print(e[modality].shape)
-    for i in range(batch_size):
-        mx=m[modality][i]
-        if not mx:
-            pass
+    for i in tqdm(range(batch_size)):
         idx.append(i)
         x=embeddings[modality][i,:] #.shape
-        #xx=e['pt']
-        #xc.append(compute_recall(x,xx).topk(10))
         y=embeddings[fusion]#.shape
         c.append(compute_cosines(x,y))
-        #print(c[i].topk(25))
-        #_=plt.hist(c.cpu(), bins=1000, log=True)
     ranks = get_rank(torch.stack(c), torch.tensor(idx))
     median_rank = ranks.median()
     r1 = sum(ranks == 0)/len(ranks)

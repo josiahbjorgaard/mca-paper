@@ -125,6 +125,8 @@ def dump_configs(config, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir,'config.yaml'),'w') as f:
         with redirect_stdout(f): print(config.dump())
+
+def dump_model_configs(config, output_dir):
     with open(os.path.join(output_dir,'model_config.json'),'w') as f:
         json.dump(get_model_config(config), f)
 
@@ -148,6 +150,9 @@ def get_cfg_defaults_embedding_eval():
     config.clip = 2.0
     config.metric = "PCC"
     config.output_dir = ""
+    config.wandb_job_name = ""
+    config.seed = 42
+    config.batch_size = 1024
     return config.clone()
 
 def embedding_eval_config(filename):

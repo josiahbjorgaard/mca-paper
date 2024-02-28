@@ -64,9 +64,9 @@ eval_dl = DataLoader(FineTuneDataset(e_test, s_test, index=config.task), batch_s
 metrics_alignment = Alignment()
 metrics_uniformity = Uniformity()
 if config.metric == "F1":
-    met = F1Score()
+    met = F1Score().to(device)
 elif config.metric == "PCC":
-    met = PearsonCorrCoef()
+    met = PearsonCorrCoef().to(device)
 else:
     raise Exception("Didn't recognize config.metric")
 
@@ -82,18 +82,18 @@ elif config.model_type == 'MLP':
 else:
     raise Exception(f"Model type {config.model_type} not recognized")
 if config.loss_type == "L1":
-    loss_fn = nn.L1Loss()
+    loss_fn = nn.L1Loss().to(device)
 elif config.loss_type == "MSE":
-    loss_fn = nn.MSELoss()
+    loss_fn = nn.MSELoss().to(device)
 elif config.loss_type == "BCE":
-    loss_fn = nn.BCEWithLogitsLoss()
+    loss_fn = nn.BCEWithLogitsLoss().to(device)
 
 # Initialise your wandb run, passing wandb parameters and any config information
-init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
+init_kwargs={"wandb": {"entity": "josiahbjorgaard", "name":config.wandb_job_name}}
 accelerator.init_trackers(
     project_name=config.wandb_name,
     config=dict(config),
-    init_kwargs=init_kwargs
+    init_kwargs=init_kwargs,
     )
 
 num_training_steps = config.epochs * len(train_dl)
@@ -106,28 +106,28 @@ lr_scheduler = get_scheduler(
     )
 
 logger.info("Start training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
-model, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
-     model, optimizer, train_dl, eval_dl, lr_scheduler
-     )
+#model, loss_fn, optimizer, train_dl, eval_dl, lr_scheduler = accelerator.prepare(
+#     model, loss_fn, optimizer, train_dl, eval_dl, lr_scheduler
+#     )
+
 train_len = len(train_dl)
 test_len = len(eval_dl)
+
 world_size = torch.cuda.device_count()
-if world_size > 0:
+
+if world_size > 1:
     raise Exception("Only one GPU allowed, but got >1 world size")
 
 if config.rank_metrics:
     #First log the ranking metrics (median_rank, r1, r5, r10)
     for k in [x for x in e_train.keys() if x != "fusion"]:
-        train_rank_mets = get_rank_metrics(e_train, k)
-        test_rank_mets = get_rank_metrics(e_test, k)
-        train_um, train_am = metrics_uniformity(e_train[k]).compute(), \
-                             metrics_alignment(e_train[k],e_train['fusion']).compute()
-        metrics_uniformity.reset()
-        metrics_alignment.reset()
-        test_um, test_am = metrics_uniformity(e_test[k]), \
-                             metrics_alignment(e_test[k],e_test['fusion'])
-        metrics_uniformity.reset()
-        metrics_alignment.reset()
+        accelerator.print(f"Ranking embeddings for {k}. This may take awhile")
+        train_rank_mets = get_rank_metrics(e_train, k, device=device)
+        test_rank_mets = get_rank_metrics(e_test, k, device=device)
+        train_um, train_am = metrics_uniformity(e_train[k].to(device)), \
+                             metrics_alignment(e_train[k].to(device),e_train['fusion'].to(device))
+        test_um, test_am = metrics_uniformity(e_test[k].to(device)), \
+                             metrics_alignment(e_test[k].to(device),e_test['fusion'].to(device))
         metrics = {
                 "train_median_rank": train_rank_mets[0],
                 "train_r1":train_rank_mets[1],
@@ -145,11 +145,13 @@ if config.rank_metrics:
         accelerator.log({f"{k}_{x}": v for x,v in metrics.items()})
 
 #Linear probe to a value
+model = model.to(device)
 for epoch in tqdm(range(config.epochs)):
     epoch_loss_train, epoch_loss_eval = torch.Tensor([0.0]), torch.Tensor([0.0])
     model.train()
-    for idb, batch in enumerate(train_dl):
+    for batch in train_dl:
         embedding, label = batch
+        embedding, label =embedding.to(device), label.to(device)
         pred = model(embedding).squeeze()
         loss = loss_fn(pred, label)
         optimizer.zero_grad()
@@ -169,13 +171,14 @@ for epoch in tqdm(range(config.epochs)):
     model.eval()
     #Eval looop
     with torch.no_grad():
-        for i, batch in tqdm(eval_dl):
+        for batch in eval_dl:
             embedding, label = batch
+            embedding, label = embedding.to(device),label.to(device)
             pred = model(embedding).squeeze()
             loss = loss_fn(pred, label)
             met.update(pred, label)
             epoch_loss_eval += loss.detach().cpu()
-        val_met = met.compute()
+        eval_met = met.compute()
         met.reset()
     accelerator.log({'train_loss':epoch_loss_train/train_len,
                      'eval_loss':epoch_loss_eval/test_len,
