@@ -37,7 +37,7 @@ class BatchPreDropout:
         self.dropout = dropout
 
     def drop(self):
-        return random.random() < self.dropout
+        return torch.rand(1) < self.dropout
     
     def __call__(self, batch_mode):
         """Batch mode is a list in this case"""
@@ -68,7 +68,7 @@ def setup_data(dataset_path, split = 0.1, ds_frac=1.0, ds_seed=42, model = 3, pr
         dataset = dataset.select(list(range(0,int(len(dataset)*ds_frac))))
 
     if predrop:
-        print(f"Running preprocessing dropout of modalities")
+        print(f"Running preprocessing dropout of modalities using random seed {torch.seed()}")
         dataset = batch_predrop(dataset, predrop_config)
     #Do a train test split
     if split and split != 1.0:
