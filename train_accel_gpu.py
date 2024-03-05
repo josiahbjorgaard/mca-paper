@@ -37,6 +37,7 @@ datasets = setup_data(config.dataset,
 
 # Collator
 default_data_collator = MultimodalCollator(config.modality_config)
+
 model_config = get_model_config(config)
 device = accelerator.device
 

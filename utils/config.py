@@ -153,6 +153,7 @@ def get_cfg_defaults_embedding_eval():
     config.wandb_job_name = ""
     config.seed = 42
     config.batch_size = 1024
+    config.threshold = 0.0
     return config.clone()
 
 def embedding_eval_config(filename):

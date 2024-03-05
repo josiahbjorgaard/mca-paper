@@ -14,6 +14,7 @@ predrop: false
 batch_size: 8
 random_seed: 43
 ds_seed: 43
+seed: 43
 lr: 0.0001
 layers: 5 #12
 wandb_name: "MFDOOM_Paper_CMU_MFDOOM"

@@ -199,7 +199,10 @@ class EmbeddedSequenceEncoder(nn.Module):
         to = batch['tokens'].masked_fill(batch['attention_mask'].unsqueeze(-1).repeat(1,1,self.input_size).to(torch.bool),0.0)
         if (~to.isfinite()).sum():
             raise Exception(f"Bad values in tokens {(~to.isfinite()).sum()}")
+        
         x_t = self.token_encoder(to)
+        
+        x_t = x_t.masked_fill(batch['attention_mask'].unsqueeze(-1).repeat(1,1,x_t.shape[-1]).to(torch.bool),0.0) #Fill these, they are maybe getting a gradient somehow
         if (~x_t.isfinite()).sum():
             raise Exception(f"Encoder transform resulted in {(~x_t.isfinite()).sum()} non-finite values")
         #x_t = torch.zeros(batch['tokens'].shape[:-1], dtype=pred.dtype, device=pred.device)
@@ -315,7 +318,7 @@ class EmbeddedSequenceCollator:
     For dense tabular, input {'data': 3DTensor (batch, index, embedding)} and set pad_len == max length
     TODO: add truncation
     """
-    def __init__(self, pad_token=-1, fill_value = 0.0, pad_len=2048, data_col_name='values', attn_mask=True, truncate=True, clean=True, **kwargs):
+    def __init__(self, pad_token=-1, fill_value = 0.0, pad_len=2048, embedding_size=512, data_col_name='values', attn_mask=True, truncate=True, clean=True, **kwargs):
         self.pad_token = pad_token
         self.fill_value = fill_value
         self.pad_len = pad_len
@@ -323,8 +326,10 @@ class EmbeddedSequenceCollator:
         self.data_col_name = data_col_name
         self.truncate = truncate
         self.clean = clean
+        self.embedding_size = embedding_size
 
     def __call__(self, data):
+        data = {self.data_col_name: [index if index is not None else torch.empty([0,self.embedding_size]) for index in data[self.data_col_name]]}
         if self.truncate:
             data = {self.data_col_name: [index[:self.pad_len] for index in data[self.data_col_name]]}
         collated_data = {}

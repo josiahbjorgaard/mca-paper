@@ -64,7 +64,7 @@ eval_dl = DataLoader(FineTuneDataset(e_test, s_test, index=config.task), batch_s
 metrics_alignment = Alignment()
 metrics_uniformity = Uniformity()
 if config.metric == "F1":
-    met = F1Score().to(device)
+    met = F1Score(task='binary').to(device)
 elif config.metric == "PCC":
     met = PearsonCorrCoef().to(device)
 else:
@@ -74,7 +74,7 @@ else:
 num_emb = next(iter(train_dl))[0].shape[1]
 if config.model_type == 'linear':
     model = nn.Linear(num_emb, 1)
-elif config.model_type == 'MLP':
+elif config.model_type.lower() == 'mlp':
     model = nn.Sequential(nn.Linear(num_emb, config.hidden_size),
                           nn.Dropout(config.dropout),
                           nn.ReLU(),
@@ -120,7 +120,7 @@ if world_size > 1:
 
 if config.rank_metrics:
     #First log the ranking metrics (median_rank, r1, r5, r10)
-    for k in [x for x in e_train.keys() if x != "fusion"]:
+    for k in [x for x in e_train.keys() if isinstance(x, str) and x != "fusion"]:
         accelerator.print(f"Ranking embeddings for {k}. This may take awhile")
         train_rank_mets = get_rank_metrics(e_train, k, device=device)
         test_rank_mets = get_rank_metrics(e_test, k, device=device)
@@ -151,7 +151,9 @@ for epoch in tqdm(range(config.epochs)):
     model.train()
     for batch in train_dl:
         embedding, label = batch
-        embedding, label =embedding.to(device), label.to(device)
+        if config.loss_type == 'BCE':
+            label = (label > config.threshold).to(torch.float)
+        embedding, label = embedding.to(device), label.to(device)
         pred = model(embedding).squeeze()
         loss = loss_fn(pred, label)
         optimizer.zero_grad()
@@ -174,6 +176,8 @@ for epoch in tqdm(range(config.epochs)):
         for batch in eval_dl:
             embedding, label = batch
             embedding, label = embedding.to(device),label.to(device)
+            if config.loss_type == 'BCE':
+                label = (label > config.threshold).to(torch.float)
             pred = model(embedding).squeeze()
             loss = loss_fn(pred, label)
             met.update(pred, label)
