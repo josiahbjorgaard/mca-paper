@@ -8,7 +8,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from collections import defaultdict
-
+import random
 from model import MFDOOM
 from encoders import MultimodalCollator
 from utils.training import get_param_norm, get_grad_norm, count_parameters, copy_batch, move_to
@@ -20,6 +20,7 @@ from itertools import combinations
 from accelerate import Accelerator
 from torch.nn.functional import normalize as norm
 torch.autograd.set_detect_anomaly(True)
+
 def zero_modes(batch, modes_to_zero):
     """
     Mask out modalities in a batch - needs custom changes for each dataset
@@ -40,7 +41,8 @@ config = training_config(sys.argv[1])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-torch.manual_seed(0)
+torch.manual_seed(config.seed)
+random.seed(config.seed)
 
 
 datasets = setup_data(config.dataset,
@@ -114,81 +116,70 @@ if config.restart:
 
 # Start model training and defining the training loop
 
-model.train()
 world_size = torch.cuda.device_count()
 for epoch in range(config.start_epoch,config.epochs):
+    model.train()
+    total_losses = defaultdict(torch.Tensor([0.0]))
     for idb, batch in tqdm(enumerate(train_dl)):
         # Training
-
         #Everything at once we need to loop over each pair of modalities and each modality
         outputs = dict()
         masks = dict()
         mods = list(batch.keys())
+        mod_samples = list(combinations(mods, 1)) + list(combinations(mods, 2))
+        random.shuffle(mod_samples)
         losses = {}
-        for idx, (k,v) in enumerate(batch.items()):
-            #mask all but one
-            batch_copy = copy_batch(batch)
-            mask = [x for x in mods if x not in [k]]
-            a_batch = move_to(zero_modes(batch_copy, mask), device)
-            #Need to implement norm or make sure it's normed here
-            #outputs[k] = norm(model(a_batch)[k].clone(), dim=1)
-            output = model(a_batch, no_loss=True)
-            outputs[k] = output[k]
-            masks[k] = output['modality_sample_mask'][k]
-            for k2 in mods[idx:]:
-                mask = [x for x in mods if x not in [k, k2]]
+        for idx, k in enumerate(mod_samples):
+            for k2 in mod_samples[idx:]:
+                #mask all but one
+                batch_copy = copy_batch(batch)
+                mask = [x for x in mods if x not in k]
+                a_batch = move_to(zero_modes(batch_copy, mask), device)
+                #Need to implement norm or make sure it's normed here
+                output = model(a_batch, no_loss=True)
+                outputs1 = output.get(output[k[0]], 0) + output.get(k[1], 0)
+                masks1 = output['modality_sample_mask'].get(k[0], 1.0) * output['modality_sample_mask'].get(k[1], 1.0)
+                mask = [x for x in mods if x not in k2]
                 batch_copy = copy_batch(batch)
                 a_batch = move_to(zero_modes(batch_copy, mask), device)
                 output = model(a_batch, no_loss=True)
-                outputs[(k, k2)] = output[k] + output[k2]
-                masks[(k, k2)] = output['modality_sample_mask'][k] * output['modality_sample_mask'][k2]
+                outputs2 = output.get(output[k[0]], 0) + output.get(k[1], 0)
+                masks2 = output['modality_sample_mask'].get(k[0], 1.0) * output['modality_sample_mask'].get(k[1], 1.0)
                 #norm(norm(output[k].clone(), dim=1) + norm(output[k2].clone(), dim=1), dim=1)
-        for k1,k2 in combinations(outputs.keys(), 2):
-            #print(f"{outputs[k1].shape = } // {outputs[k2].shape = }")
-            mask = masks[k1]*masks[k2]
-            #print(mask)
-            #if (~mask).sum() == 0:
-            #    losses[(k1,k2)] = np.NaN
-            #else:
-            if outputs[k1].isnan().sum() or outputs[k2].isnan().sum():
-                print("Nan detected")
-                print(f"{outputs[k1].isnan().sum()}")
-                print(f"{outputs[k2].isnan().sum()}")
-                exit()
-            losses[(k1,k2)] = loss_function(outputs[k1], outputs[k2], mask = mask)
-        # Zero out NaN losses (batches with all masked samples give NaN) and average
-        loss_list = [x for x in losses.values()]
-        loss_tensor = torch.tensor(loss_list)
-        loss_mask = ~torch.isnan(loss_tensor)
-        nl = torch.sum(loss_mask).to(torch.float)
-        if nl == 0.0:
-            print(f"Warning, there are no losses calculated!!!")
-            loss = sum([torch.nan_to_num(x) for x in loss_list])
-        else:
-            loss = sum([torch.nan_to_num(x) for x in loss_list])/nl
-        loss = sum(list(losses.values()))
-        optimizer.zero_grad()
-        accelerator.backward(loss)
-        if config.clip:
-            accelerator.clip_grad_norm_(model.parameters(), config.clip)
-        optimizer.step()
-        lr_scheduler.step()
+                # TODO: bimodal output should be the Norm
+                mask = masks1 * masks2
+                if outputs1.isnan().sum() or outputs2.isnan().sum():
+                    print("Nan detected")
+                    print(f"{outputs1.isnan().sum()}")
+                    print(f"{outputs2.isnan().sum()}")
+                    exit()
+                loss = torch.nan_to_num(loss_function(outputs1, outputs2, mask = mask))
+                optimizer.zero_grad()
+                accelerator.backward(loss)
+                if config.clip:
+                    accelerator.clip_grad_norm_(model.parameters(), config.clip)
+                optimizer.step()
+                lr_scheduler.step()
+                losses[(k, k2)] = loss.detach().cpu()
+                total_losses[(k, k2)] += losses[(k, k2)]
+        accelerator.log(losses)
 
-        # Log and checkpoint
-        if idb % config.n_step_checkpoint == 0:
-            accelerator.save_state(config.output_dir)
-        if accelerator.is_main_process:
-            progress_bar.update(world_size)
-        accelerator.log({"total_loss": loss.detach().to("cpu")})
-        #accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
-        accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
-                         "grad_norm": get_grad_norm(model).to("cpu")})
-        accelerator.log({"lr": optimizer.param_groups[0]['lr']})
+    # Log and checkpoint
+    if idb % config.n_step_checkpoint == 0:
+        accelerator.save_state(config.output_dir)
+    if accelerator.is_main_process:
+        progress_bar.update(world_size)
+    accelerator.log({"total_loss": sum(total_losses.values())})
+    #accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
+    accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
+                     "grad_norm": get_grad_norm(model).to("cpu")})
+    accelerator.log({"lr": optimizer.param_groups[0]['lr']})
 
     #Epoch end log and checkpoint
     os.makedirs(os.path.join(config.output_dir, str(epoch)), exist_ok=True)
     accelerator.save_state(os.path.join(config.output_dir, str(epoch)))
     #Eval looop
+    """
     if config.run_eval_loop:
         model.eval()
         with torch.no_grad():
@@ -267,7 +258,7 @@ for epoch in range(config.start_epoch,config.epochs):
                 v.reset()
             for v in metrics_alignment.values():
                 v.reset()
-
+        """
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
