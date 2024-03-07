@@ -34,7 +34,11 @@ def zero_modes(batch, modes_to_zero):
             batch[mode]['attention_mask']=torch.ones_like(batch[mode]['attention_mask'])
     return batch
 
-accelerator = Accelerator(log_with="wandb")
+from accelerate import DistributedDataParallelKwargs
+
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+accelerator = Accelerator(kwargs_handlers=[ddp_kwargs], log_with="wandb")
+#accelerator = Accelerator(log_with="wandb")
 
 config = training_config(sys.argv[1])
 
@@ -72,7 +76,7 @@ if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
-    project_name="MFDOOM_Paper_CMU",
+    project_name="MFDOOM_Paper_CMU_EAO",
     config=dict(config),
     init_kwargs=init_kwargs
     )
@@ -119,7 +123,7 @@ if config.restart:
 world_size = torch.cuda.device_count()
 for epoch in range(config.start_epoch,config.epochs):
     model.train()
-    total_losses = defaultdict(torch.Tensor([0.0]))
+    total_losses = defaultdict(lambda: torch.Tensor([0.0]))
     for idb, batch in tqdm(enumerate(train_dl)):
         # Training
         #Everything at once we need to loop over each pair of modalities and each modality
@@ -130,21 +134,29 @@ for epoch in range(config.start_epoch,config.epochs):
         random.shuffle(mod_samples)
         losses = {}
         for idx, k in enumerate(mod_samples):
-            for k2 in mod_samples[idx:]:
-                #mask all but one
-                batch_copy = copy_batch(batch)
-                mask = [x for x in mods if x not in k]
-                a_batch = move_to(zero_modes(batch_copy, mask), device)
-                #Need to implement norm or make sure it's normed here
-                output = model(a_batch, no_loss=True)
-                outputs1 = output.get(output[k[0]], 0) + output.get(k[1], 0)
-                masks1 = output['modality_sample_mask'].get(k[0], 1.0) * output['modality_sample_mask'].get(k[1], 1.0)
+            #mask all but one
+            batch_copy = copy_batch(batch)
+            mask = [x for x in mods if x not in k]
+            a_batch = move_to(zero_modes(batch_copy, mask), device)
+            #Need to implement norm or make sure it's normed here
+            output = model(a_batch, no_loss=True)
+            if len(k) > 1:
+                outputs1 = (output[k[0]] + output[k[1]]).detach()
+                masks1 = output['modality_sample_mask'][k[0]] * output['modality_sample_mask'][k[1]]
+            else:
+                outputs1 = output[k[0]].detach()
+                masks1 = output['modality_sample_mask'][k[0]]
+            for k2 in mod_samples[idx+1:]:
                 mask = [x for x in mods if x not in k2]
                 batch_copy = copy_batch(batch)
                 a_batch = move_to(zero_modes(batch_copy, mask), device)
                 output = model(a_batch, no_loss=True)
-                outputs2 = output.get(output[k[0]], 0) + output.get(k[1], 0)
-                masks2 = output['modality_sample_mask'].get(k[0], 1.0) * output['modality_sample_mask'].get(k[1], 1.0)
+                if len(k2) > 1:
+                    outputs2 = (output[k2[0]] + output[k2[1]])
+                    masks2 = output['modality_sample_mask'][k2[0]] * output['modality_sample_mask'][k2[1]]
+                else:
+                    outputs2 = output[k2[0]]
+                    masks2 = output['modality_sample_mask'][k2[0]]
                 #norm(norm(output[k].clone(), dim=1) + norm(output[k2].clone(), dim=1), dim=1)
                 # TODO: bimodal output should be the Norm
                 mask = masks1 * masks2
@@ -162,8 +174,9 @@ for epoch in range(config.start_epoch,config.epochs):
                 lr_scheduler.step()
                 losses[(k, k2)] = loss.detach().cpu()
                 total_losses[(k, k2)] += losses[(k, k2)]
-        accelerator.log(losses)
-
+        accelerator.log({"__".join(["_".join(x) for x in k]):v for k,v in losses.items()})
+        accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
+                     "grad_norm": get_grad_norm(model).to("cpu")})
     # Log and checkpoint
     if idb % config.n_step_checkpoint == 0:
         accelerator.save_state(config.output_dir)
@@ -171,8 +184,6 @@ for epoch in range(config.start_epoch,config.epochs):
         progress_bar.update(world_size)
     accelerator.log({"total_loss": sum(total_losses.values())})
     #accelerator.log({k: v.detach().to("cpu") for k,v in outputs['losses'].items() if '|' not in k})
-    accelerator.log({"param_norm": get_param_norm(model).to("cpu"),
-                     "grad_norm": get_grad_norm(model).to("cpu")})
     accelerator.log({"lr": optimizer.param_groups[0]['lr']})
 
     #Epoch end log and checkpoint
