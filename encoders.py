@@ -301,6 +301,8 @@ class SequenceCollator:
         self.data_col_name = data_col_name
         self.other_col = other_col
     def __call__(self, data):
+        data = {self.data_col_name: [index if index is not None else torch.empty([0]) for index in data[self.data_col_name]]}
+
         collated_data = {
             self.data_col_name: [pad(index, (0, self.pad_len - index.shape[-1]), mode='constant', value=self.pad_token)
                       for index in data[self.data_col_name]]}
