@@ -47,10 +47,10 @@ device = accelerator.device
 
 #TODO check if these exist, and tell user ot run inference first if not
 e_train=torch.load(f'{config.embedding_dir}/train_embeddings.pt', map_location="cpu")
-#m_train=torch.load(f'{config.embedding_dir}/train_masks.pt', map_location="cpu")
+m_train=torch.load(f'{config.embedding_dir}/train_masks.pt', map_location="cpu")
 s_train=torch.load(f'{config.embedding_dir}/train_labels.pt', map_location="cpu").squeeze()
 e_test=torch.load(f'{config.embedding_dir}/eval_embeddings.pt', map_location="cpu")
-#m_test=torch.load(f'{config.embedding_dir}/eval_masks.pt', map_location="cpu")
+m_test=torch.load(f'{config.embedding_dir}/eval_masks.pt', map_location="cpu")
 s_test=torch.load(f'{config.embedding_dir}/eval_labels.pt', map_location="cpu").squeeze()
 
 print(f"Shape of test labels: {s_test.shape}")
@@ -124,10 +124,10 @@ if config.rank_metrics:
         accelerator.print(f"Ranking embeddings for {k}. This may take awhile")
         train_rank_mets = get_rank_metrics(e_train, k, device=device)
         test_rank_mets = get_rank_metrics(e_test, k, device=device)
-        train_um, train_am = metrics_uniformity(e_train[k].to(device)), \
-                             metrics_alignment(e_train[k].to(device),e_train['fusion'].to(device))
-        test_um, test_am = metrics_uniformity(e_test[k].to(device)), \
-                             metrics_alignment(e_test[k].to(device),e_test['fusion'].to(device))
+        train_um, train_am = metrics_uniformity(e_train[k][m_train[k]].to(device)), \
+                             metrics_alignment(e_train[k][m_train[k]].to(device),e_train['fusion'][m_train[k]].to(device))
+        test_um, test_am = metrics_uniformity(e_test[k][m_test[k]].to(device)), \
+                             metrics_alignment(e_test[k][m_test[k]].to(device),e_test['fusion'][m_test[k]].to(device))
         metrics = {
                 "train_median_rank": train_rank_mets[0],
                 "train_r1":train_rank_mets[1],
@@ -143,7 +143,8 @@ if config.rank_metrics:
                 "test_alignment": test_am,
             }
         accelerator.log({f"{k}_{x}": v for x,v in metrics.items()})
-
+    accelerator.log({f"train_uniformity_fusion": metrics_uniformity(e_train['fusion'].to(device)),
+        "test_uniformity_fusion": metrics_uniformity(e_test['fusion'].to(device))}
 #Linear probe to a value
 model = model.to(device)
 for epoch in tqdm(range(config.epochs)):
