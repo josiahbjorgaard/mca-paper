@@ -36,7 +36,7 @@ datasets = setup_data(config.dataset,
                       predrop_config=config.modality_config)
 
 # Collator
-default_data_collator = MultimodalCollator(config.modality_config, labels="Labels")
+default_data_collator = MultimodalCollator(config.modality_config, labels=config.label_col)
 model_config = get_model_config(config)
 device = accelerator.device
 

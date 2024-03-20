@@ -14,6 +14,7 @@ def get_cfg_defaults_train():
     config.encoder_configs = CN(new_allowed=True) #None #{}
     config.modality_configs = CN(new_allowed=True)
     config.predrop = False
+    config.label_col = "Labels"
     config.restart = "" #'training_output_21_31_23_10_2023'
     config.wandb_name = "No Name"
     config.wandb_restart = ""
