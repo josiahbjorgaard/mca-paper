@@ -72,10 +72,11 @@ metrics_uniformity = Uniformity()
 
 if config.rank_metrics:
     #First log the ranking metrics (median_rank, r1, r5, r10)
+    targets = torch.stack([e_train['fusion'],e_test['fusion']])
     for k in [x for x in e_train.keys() if isinstance(x, str) and x != "fusion"]:
         accelerator.print(f"Ranking embeddings for {k}. This may take awhile")
-        train_rank_mets = get_rank_metrics(e_train, k, device=device)
-        test_rank_mets = get_rank_metrics(e_test, k, device=device)
+        train_rank_mets = get_rank_metrics(e_train[k][m_train[k]], targets, device=device)
+        test_rank_mets = get_rank_metrics(e_test[k][m_test[k]], targets, device=device)
         train_um, train_am = metrics_uniformity(e_train[k][m_train[k]].to(device)), \
                              metrics_alignment(e_train[k][m_train[k]].to(device),e_train['fusion'][m_train[k]].to(device))
         test_um, test_am = metrics_uniformity(e_test[k][m_test[k]].to(device)), \
@@ -145,7 +146,7 @@ elif config.loss_type == "CE":
 
 
 elif config.loss_type in ["L1","MSE"]:
-    metrics = {"pcc":tm.PearsonCorrCoef().to(device)}
+    metrics = {"PCC":tm.PearsonCorrCoef().to(device)}
 else:
     raise Exception("Didn't recognize config.metric")
 

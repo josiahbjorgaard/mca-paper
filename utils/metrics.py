@@ -79,15 +79,15 @@ def get_rank(x, indices):
     vals = x[range(len(x)), indices]
     return (x > vals[:, None]).long().sum(1)
 
-def get_rank_metrics(embeddings, modality, fusion="fusion", device="cuda"):
+def get_rank_metrics(embeddings, targets, fusion="fusion", device="cuda"):
     c=list()
     idx = list()
-    embeddings = {k:v.to(device) for k,v in embeddings.items()}
-    batch_size = embeddings[modality].shape[0]
-    for i in tqdm(range(batch_size)):
+    embeddings = embeddings.to(device)
+    num_to_calc = embeddings.shape[0]
+    for i in tqdm(range(num_to_calc)):
         idx.append(i)
-        x=embeddings[modality][i,:] #.shape
-        y=embeddings[fusion]#.shape
+        x=embeddings[i,:] #.shape
+        y=targets#.shape
         c.append(compute_cosines(x,y))
     ranks = get_rank(torch.stack(c), torch.tensor(idx))
     median_rank = ranks.median()

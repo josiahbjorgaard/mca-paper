@@ -77,7 +77,7 @@ class TabularEncoder(nn.Module):
     def __init__(self,
                  num_embeddings = 128, #Vocab size
                  embedding_dim = 512, #size of embedding vector
-                 padding_idx = 0, #padding (no entry) token
+                 padding_idx = -1, #padding (no entry) token
                  dropout = 0.0,
                  max_value = 10000,
                  **kwargs
