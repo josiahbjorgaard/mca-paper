@@ -31,6 +31,8 @@ def get_cfg_defaults_train():
     config.split = 0.1 # Train/Test split if not already split
     config.ds_frac = 1.0 # Fraction of dataset to use
     config.ds_seed = 42 # Dataset random Seed
+    config.clip = 0.0 # Gradient clipping factor
+
 
     # Model configuration
     config.hidden_size = 512 # Model hidden size
@@ -40,9 +42,8 @@ def get_cfg_defaults_train():
     config.ff_mult = 4  # Feed forward multiplier
     config.num_fusion_tokens = 256 # Number of fusion tokens to use - must be divisible by number of channels (see paper)
     config.seed = 42 # Python random seed
-    config.mean_pool = False # Use mean pooling instead of attentive pooling
+    config.mean_pool = False # Use mean pooling instead of attentive pooling when True
     config.dropout = 0.1 # Global dropout parameter for all dropout layers
-    config.clip = 0.0 # Gradient clipping factor
     config.zorro = False # Use the Zorro-type Masked-Multimodal Attention (No Modal Fusion Channels)
     config.run_eval_loop = True # Set to run eval loop or disable it
     config.bimodal_contrastive = True # If set to True, non-fusion unimodal-unimodal token pairs are contrasted
@@ -53,6 +54,7 @@ def get_cfg_defaults_train():
     config.fusion_combos = [4,3,2] # The cardinalities of combinations to use. For example, [4,3] will use all 4-wise and 3-wise combinations of different modalities for fusion channels.
     config.return_logits = True # If True, model will return logits with the loss
     #N.B. If config.restart, will reset all config items to checkpoint yaml
+
     return config.clone()
 
 def restart_cfg(config):

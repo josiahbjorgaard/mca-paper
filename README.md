@@ -42,6 +42,7 @@ accelerate launch lp_accel_gpu.py <config_file_path>
 
 # Training with Other Datasets for Multimodal Fusion Embeddings
 
+## Dataset configurations
 Data encoders are provided which can be configured to collate any combination of sequence, tabular, and pre-embedded modality tokens in `encoders.py`. The configuration for a given dataset is presented in the example yaml config files. An example configuration is shown below.
 
 ```angular2html
@@ -63,6 +64,8 @@ The `modality_config` filed defines the modality collator type. Available types 
 
 These configuration options define the number of modalities and encoding of the input data before the multimodal fusion transformer and can be adjusted for other multimodal datasets.
 
+## Model configurations
+Depending on the alignment in multimodal data and general transformer encoder hyperparameters, you may change model configuration parameters. See `utils/config.py` for an extensive list of model hyperparameters.
 # Contributing
 
 
