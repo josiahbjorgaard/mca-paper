@@ -1,0 +1,8 @@
+embedding_dir: "CMU_config1_d30_z_4i" # 'training_output_04_33_29_02_2024_3'
+wandb_job_name: 'z0_30i_4e'
+rank_metrics: True
+model_type: "linear"
+epochs: 5120
+loss_type: "BCE"
+metric: "F1"
+task: 2

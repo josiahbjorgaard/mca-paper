@@ -1,0 +1,8 @@
+embedding_dir: 'training_output_18_49_05_03_2024_1'
+wandb_job_name: 'z0_d80_12e'
+rank_metrics: True
+model_type: "MLP"
+epochs: 5120
+loss_type: "L1"
+metric: "PCC"
+task: 0

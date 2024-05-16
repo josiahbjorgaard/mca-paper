@@ -1,0 +1,8 @@
+embedding_dir: 'training_output_21_00_26_02_2024_4'
+wandb_job_name: 'z0_12e'
+rank_metrics: True
+model_type: "mlp"
+epochs: 5120
+loss_type: "BCE"
+metric: "F1"
+task: 2

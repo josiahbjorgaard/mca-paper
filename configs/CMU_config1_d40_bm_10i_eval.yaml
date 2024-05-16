@@ -1,0 +1,8 @@
+embedding_dir: "CMU_config1_d40_bm_10i" # 'training_output_19_23_06_03_2024_9'
+wandb_job_name: 'm0_bm_d40_10e'
+rank_metrics: True
+model_type: "linear"
+epochs: 5120
+loss_type: "L1"
+metric: "PCC"
+task: 0

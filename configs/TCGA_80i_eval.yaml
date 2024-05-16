@@ -1,0 +1,10 @@
+embedding_dir: "TCGA_80i" # 'training_output_00_48_08_03_2024_1'
+wandb_job_name: 'mt_60e'
+wandb_name: 'TCGA_Embedding_eval'
+rank_metrics: True
+model_type: "linear"
+epochs: 10001
+loss_type: "BCE"
+metric: "F1"
+task: -1
+lr: 1e-4

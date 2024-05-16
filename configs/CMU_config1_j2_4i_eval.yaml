@@ -1,0 +1,8 @@
+embedding_dir: "CMU_config1_j2_4i" # 'training_output_01_27_27_02_2024_2_i4'
+wandb_job_name: 'j2_4e'
+rank_metrics: True
+model_type: "linear"
+epochs: 5120
+loss_type: "BCE"
+metric: "F1"
+task: 2

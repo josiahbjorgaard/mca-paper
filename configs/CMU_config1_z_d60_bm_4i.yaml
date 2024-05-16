@@ -1,0 +1,37 @@
+encoder_configs:
+  COVAREP: {type: 'EmbeddedSequenceEncoder', input_size: 74, max_tokens: 1500}
+  FACET: {type: 'EmbeddedSequenceEncoder', input_size: 35, max_tokens: 450}
+  OpenFace: {type: 'EmbeddedSequenceEncoder', input_size: 713, max_tokens: 450}
+  glove_vectors: {type: 'EmbeddedSequenceEncoder', input_size: 300, max_tokens: 50}
+modality_config:
+  COVAREP: {type: 'embedded_sequence', embedding_size: 74, dropout: 0.6, pad_len: 1500, data_col_name: "data", pad_token: -10000}
+  FACET: {type: 'embedded_sequence', embedding_size: 35, dropout: 0.6, pad_len: 450,  data_col_name: "data", pad_token: -10000}
+  OpenFace: {type: 'embedded_sequence', embedding_size: 713, dropout: 0.6, pad_len: 450, data_col_name: "data", pad_token: -10000}
+  glove_vectors: {type: 'embedded_sequence', embedding_size: 300, dropout: 0.6, pad_len: 50, data_col_name: "data", pad_token: -10000}
+num_fusion_tokens: 88
+ds_frac: 1.0
+predrop: true
+random_seed: 44
+ds_seed: 44
+seed: 44
+batch_size: 8
+lr: 0.0001
+wandb_name: "MFDOOM_Paper_CMU"                                    
+layers: 5 #12
+lr_scheduler_type: "cosine"
+epochs: 32
+#start_epoch: 22
+bimodal_contrastive: True
+non_fusion_fcl: False
+fcl: False
+fcl_root: [0,1,2,3]
+fusion_combos: [4,3,2]
+loss_masking: True
+#inverse_doom: true
+zorro: True
+output_dir: "CMU_config1_z_d60_bm_4i"  # "training_output_23_54_05_03_2024"
+restart: "training_output_23_54_05_03_2024/3"
+#restart_wandb: "0l846v73"
+clip: 2.0
+dataset: "/shared/cmu"
+

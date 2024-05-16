@@ -1,0 +1,37 @@
+encoder_configs:
+  gene: {type: 'TabularEncoder', num_embeddings: 800, max_tokens: 800, max_value: 100}
+  protein: {type: 'TabularEncoder', num_embeddings: 198, max_tokens: 198, max_value: 100}
+  methylation: {type: 'TabularEncoder', num_embeddings: 800, max_tokens: 800, max_value: 100}
+  mirna: {type: 'TabularEncoder', num_embeddings: 662, max_tokens: 662, max_value: 100}
+modality_config:
+  gene: {type: 'sequence', pad_len: 800, data_col_name: "values", pad_token: -10000}
+  protein: {type: 'sequence', pad_len: 198,  data_col_name: "values", pad_token: -10000}
+  methylation: {type: 'sequence', pad_len: 800 , data_col_name: "values", pad_token: -10000}
+  mirna: {type: 'sequence', pad_len: 662, data_col_name: "values", pad_token: -10000}
+num_fusion_tokens: 88
+ds_frac: 1.0
+predrop: false
+batch_size: 8
+random_seed: 43
+ds_seed: 43
+seed: 43
+lr: 0.0001
+layers: 5 #12
+wandb_name: "MFDOOM_Paper_TCGA_MFDOOM"
+lr_scheduler_type: "cosine"
+epochs: 128
+#start_epoch: 22
+bimodal_contrastive: True
+non_fusion_fcl: True
+fcl: True
+fcl_root: [0,1,2,3]
+fusion_combos: [4,3,2]
+loss_masking: True
+#inverse_doom: true
+zorro: false
+#output_dir: "training_output_22_02_13_12_2023"
+#restart: "training_output_22_02_13_12_2023/21"
+#restart_wandb: "0l846v73"
+clip: 2.0
+dataset: "/shared/tcga_dataset"
+
