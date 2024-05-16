@@ -294,19 +294,14 @@ class MCA(nn.Module):
             fcl = False, #Fusion channel loss
             fcl_root = [1,2,3,4,5], #Root channel for Fusion channel loss, almost always all
             fusion_combos = [4,5], #Powers of fusion channels to mask in attention
-            isolated_fusion = True, #Basically deprecated
             zorro = False, #Replicate the ZORRO paper
-            everything_at_once = False, #Replicate the Everything at Once paper (requires outer training loop)
             no_fusion = False,
-            loss_masking = True,
             mean_pool = False,
             **kwargs
     ):
         super().__init__()
         print(f"Got kwargs: {kwargs}")
-        assert not (everything_at_once and zorro), "Can't do both EaO and Zorro"
         self.batch_size = batch_size
-        self.isolated_fusion = isolated_fusion
         self.no_fusion = no_fusion
         self.inverse_doom = None #inverse_doom #Deprecated
         self.fusion_token = -1
@@ -350,36 +345,28 @@ class MCA(nn.Module):
 
         # transformer
         self.layers = nn.ModuleList([])
-
         for _ in range(depth):
             self.layers.append(mcaLayer(dim, dim_head, heads, ff_mult))
 
         self.norm = LayerNorm(dim)
         self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
-        if everything_at_once: #A mean pooling layer with linear projection for Everything at Once
-            assert no_fusion, "Can't do EaO with fusion tokens"
+        if mean_pool:
             self.return_tokens = None
-            self.attn_pool = MeanTokenProjectionPool(self.token_types, in_dim = dim, out_dim=dim)
-            self.attn_mask = None
-            self.pool_mask = None
-        else: #The attention-based Zorro pooling layer or mca pooling
-            if mean_pool:
-                self.return_tokens = None
-                self.attn_pool = MeanTokenProjectionPool(self.token_types, in_dim = dim, out_dim=dim, projection=False)
-            else:
-                self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
-                self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
-            attn_mask = self.create_zorro_mask(self.token_types)
-            pool_mask = self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor)
-            if not zorro: #Zorro doesn't have modal-incomplete fusion channel attention mask
-                attn_mask = self.create_mca_mask(self.token_types, self.fusion_combos, attn_mask)
-                if fcl: #Breaksdown fusion channel tokens in the pooling mask too
-                    pool_mask = self.create_mca_pooling_mask(self.token_types,
-                                                            self.fusion_combos,
-                                                            return_token_types_tensor,
-                                                            pool_mask)
-            self.register_buffer('attn_mask', attn_mask)
-            self.register_buffer('pool_mask', pool_mask)
+            self.attn_pool = MeanTokenProjectionPool(self.token_types, in_dim = dim, out_dim=dim, projection=False)
+        else:
+            self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
+            self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        attn_mask = self.create_zorro_mask(self.token_types)
+        pool_mask = self.create_zorro_pooling_mask(self.token_types, return_token_types_tensor)
+        if not zorro: #Zorro doesn't have modal-incomplete fusion channel attention mask
+            attn_mask = self.create_mca_mask(self.token_types, self.fusion_combos, attn_mask)
+            if fcl: #Breaksdown fusion channel tokens in the pooling mask too
+                pool_mask = self.create_mca_pooling_mask(self.token_types,
+                                                        self.fusion_combos,
+                                                        return_token_types_tensor,
+                                                        pool_mask)
+        self.register_buffer('attn_mask', attn_mask)
+        self.register_buffer('pool_mask', pool_mask)
 
         self.loss = MCAPretrainingLoss(self.modality_types,
                                           do_fcl=fcl and not zorro,
@@ -387,8 +374,7 @@ class MCA(nn.Module):
                                           fcl_root=self.fcl_root,
                                           bimodal_contrastive = bimodal_contrastive,
                                           no_fusion=no_fusion,
-                                          non_fusion_fcl=non_fusion_fcl,
-                                          masking=loss_masking)
+                                          non_fusion_fcl=non_fusion_fcl)
 
 
     def create_token_types_tensor(self,dim_list, num_fusion_tokens):
