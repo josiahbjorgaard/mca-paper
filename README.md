@@ -14,7 +14,7 @@ To install requirements:
 pip install -r requirements.txt
 ```
 
-This repository makes heavy use of Huggingface Accelerator and Datasets libraries for managing training and data.
+This repository makes heavy use of Huggingface Accelerator and Datasets libraries for managing training and data and WandB for collecting performance metrics.
 
 # Training
 To train the model, choose a configuration file from the configs directory and run
