@@ -52,7 +52,7 @@ model = MCA(**model_config)
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
 # Initialise your wandb run, passing wandb parameters and any config information
-init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
+init_kwargs={"wandb": {"entity": config.wandb_account_name}}
 if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"

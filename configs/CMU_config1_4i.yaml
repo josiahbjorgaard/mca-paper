@@ -19,14 +19,12 @@ layers: 5 #12
 wandb_name: "MFDOOM_Paper_CMU_MFDOOM"
 lr_scheduler_type: "cosine"
 epochs: 32
-#start_epoch: 22
 bimodal_contrastive: False
 non_fusion_fcl: False
 fcl: True
 fcl_root: [0,1,2,3]
 fusion_combos: [4,3,2]
 loss_masking: True
-#inverse_doom: true
 zorro: false
 output_dir: "training_output_23_08_26_02_2024_2_i4"
 restart: "training_output_23_08_26_02_2024_2/4"

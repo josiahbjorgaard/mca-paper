@@ -147,6 +147,7 @@ def get_cfg_defaults_embedding_eval():
     config.clip = 2.0
     config.metric = "PCC"
     config.output_dir = ""
+    config.wandb_name = ""
     config.wandb_job_name = ""
     config.seed = 42
     config.batch_size = 1024
@@ -166,8 +167,6 @@ def embedding_eval_config(filename):
             config.output_dir = output_dir + f'_{i}'
             i+=1
     print(new_config)
-    #config.merge_from_file(filename)
     config.merge_from_other_cfg(new_config)
     dump_configs(config, config.output_dir)
-    #config.freeze()
     return config
