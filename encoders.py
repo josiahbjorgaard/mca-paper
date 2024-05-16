@@ -205,9 +205,6 @@ class EmbeddedSequenceEncoder(nn.Module):
         x_t = x_t.masked_fill(batch['attention_mask'].unsqueeze(-1).repeat(1,1,x_t.shape[-1]).to(torch.bool),0.0) #Fill these, they are maybe getting a gradient somehow
         if (~x_t.isfinite()).sum():
             raise Exception(f"Encoder transform resulted in {(~x_t.isfinite()).sum()} non-finite values")
-        #x_t = torch.zeros(batch['tokens'].shape[:-1], dtype=pred.dtype, device=pred.device)
-        #x_t = x_t.unsqueeze(-1).repeat(1,1,self.embedding_dim)
-        #x_t[~batch['attention_mask'],:] = pred 
         x_p = self.positional_encoder(batch['tokens'])
         x = x_t + x_p
         if x.isnan().sum().sum():
@@ -365,82 +362,6 @@ class MatrixCollator:
         if self.max_channels:
             collated_data['values'] = [x[:,:self.max_channels] for x in collated_data['values']]
         return {k: torch.stack(v) for k,v in collated_data.items()}
-
-
-class OldSequenceCollator:
-    """
-    Sequence collator that also works for sparse tabular data (for it's index vector)
-    """
-    def __init__(self, pad_token=0, pad_len=2048, attn_mask=False,  **kwargs):
-        self.pad_token = pad_token
-        self.pad_len=pad_len
-        self.attn_mask = attn_mask
-
-    def __call__(self, data):
-        collated_data = {k: list() for k in data[0].keys()}
-        if self.attn_mask:
-            for k in [key for key in collated_data.keys() if 'index' in key]:
-                collated_data[k.split('_')[0] + '_mask'] = list()
-        for d in data:
-            for k,v in d.items():
-                length = v.shape[-1]
-                padded_v = pad(v, (0,self.pad_len-length), mode='constant', value=self.pad_token)
-                collated_data[k].append(padded_v)
-                if self.attn_mask and 'index' in k:
-                    collated_data[k.split('_')[0]+'_mask'].append((padded_v != self.pad_token).to(torch.bool))
-        for k,v in collated_data.items():
-            collated_data[k]=torch.stack(v)
-        return collated_data
-
-
-class OldSequenceCollatorWithTargets:
-    """
-    Create a vector with zeros for targets, instead of treating them as a padded sequence.
-    """
-    def __init__(self, pad_token=0,
-            pad_len = 2048,
-            target_name = "velocity",
-            target_size=2000,
-            target_ids=None,
-            norm=[1.0,0.0],
-                 **kwargs
-                 ):
-        self.pad_token = pad_token
-        self.pad_len = pad_len
-        self.target_name = target_name
-        self.norm=norm
-        if target_ids:
-            self.target_size = len(target_ids)
-        else:
-            self.target_size = target_size
-        self.target_ids = target_ids
-
-    def __call__(self, data):  # (2)
-        collated_data = {k: list() for k in data[0].keys() if self.target_name not in k}
-        collated_data[self.target_name]=list()
-        for d in data:
-            for k, v in d.items():
-                if self.target_name not in k:
-                    length = v.shape[-1]
-                    padded_v = pad(v, (0, self.pad_len - length), mode='constant', value=self.pad_token)
-                    collated_data[k].append(padded_v)
-            #Target data (like velocity)
-            targets = torch.zeros(self.target_size, dtype = d[self.target_name+'_data'].dtype)
-            if self.target_ids:
-                # Find target ids in the set of target indices, and then add the data to the targets
-                # In the order specified in target_ids. Must be a better way of doing this (pytorchonic way?)
-                for target_idx,target_id in enumerate(self.target_ids):
-                    idx = d[self.target_name+'_index'] == target_id
-                    x = d[self.target_name+'_data'][idx]
-                    y = x.item() if x.nelement() != 0 else 0.0
-                    targets[target_idx] = y
-            else:
-                targets[d[self.target_name+'_index']] = d[self.target_name+'_data']
-            targets = targets*self.norm[0]+self.norm[1]
-            collated_data[self.target_name].append(targets)
-        for k, v in collated_data.items():
-            collated_data[k] = torch.stack(v)
-        return collated_data
 
 
 collators = {
