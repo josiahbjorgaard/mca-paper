@@ -1,4 +1,4 @@
-# Code for Sparse Multimodal Fusion with Modal Channel
+# Code for Sparse Multimodal Fusion with Modal Channel Attention
 
 This repository is the official implementation of Sparse Multimodal Fusion with Modal Channel Attention
 
