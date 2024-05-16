@@ -26,7 +26,7 @@ accelerate launch train_accel_gpu.py <config_file_path>
 # Evaluation
 To evaluate the model, run an inference using pretrained model weights, then train a linear probe to fit a target property.
 
-To run a batch inference
+To run a batch inference:
 
 ```angular2html
 accelerate launch infer_accel_gpu.py <config_file_path>
@@ -40,7 +40,28 @@ accelerate launch lp_accel_gpu.py <config_file_path>
 
 # Pre-trained Models
 
-# Results
+# Training with Other Datasets for Multimodal Fusion Embeddings
+
+Data encoders are provided which can be configured to collate any combination of sequence, tabular, and pre-embedded modality tokens in `encoders.py`. The configuration for a given dataset is presented in the example yaml config files. An example configuration is shown below.
+
+```angular2html
+encoder_configs:
+  COVAREP: {type: 'EmbeddedSequenceEncoder', input_size: 74, max_tokens: 1500}
+  FACET: {type: 'EmbeddedSequenceEncoder', input_size: 35, max_tokens: 450}
+  OpenFace: {type: 'EmbeddedSequenceEncoder', input_size: 713, max_tokens: 450}
+  glove_vectors: {type: 'EmbeddedSequenceEncoder', input_size: 300, max_tokens: 50}
+modality_config:
+  COVAREP: {type: 'embedded_sequence', pad_len: 1500, data_col_name: "data", pad_token: -10000}
+  FACET: {type: 'embedded_sequence', pad_len: 450,  data_col_name: "data", pad_token: -10000}
+  OpenFace: {type: 'embedded_sequence', pad_len: 450, data_col_name: "data", pad_token: -10000}
+  glove_vectors: {type: 'embedded_sequence', pad_len: 50, data_col_name: "data", pad_token: -10000}
+```
+
+Multimodal data is received as a dictionary of tensors with keys given by the names under `encoder_configs` and the type of data encoder is given by the `type` field. The encoder types are: `SequenceEncoder, TabularEncoder, SparseTabularEncoder, PatchEncoder, EmbeddedSequenceEncoder`.
+
+The `modality_config` filed defines the modality collator type. Available types are: `sequence`, `embedded_sequence`, `matrix`. Tabular encoders use the `sequence` collator.
+
+These configuration options define the number of modalities and encoding of the input data before the multimodal fusion transformer and can be adjusted for other multimodal datasets.
 
 # Contributing
 
