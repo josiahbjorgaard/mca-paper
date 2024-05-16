@@ -1,18 +1,11 @@
-
-from itertools import combinations
-
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum, Tensor
-
 from einops import rearrange, repeat, pack, unpack
-
-from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
-
-from encoders import encoders_dict
-
-
 from itertools import chain, combinations
+#from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
+from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
+from encoders import encoders_dict
 
 
 def adjusted_powerset(unique_tokens, powers=[2, 3]):
