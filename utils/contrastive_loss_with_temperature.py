@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 from torchmultimodal.utils.distributed import BackpropType, gather_tensor
 
-#import torch_xla.core.xla_model as xm
+# The following is adapted from torch-multimodal package
 
 @dataclass
 class ContrastiveLossOutput(OrderedDict):
@@ -23,24 +23,15 @@ def _gather_embeddings_and_labels(
     embeddings_b: Tensor,
     backprop_type: BackpropType = BackpropType.GLOBAL,
 ) -> Tuple[Tensor, Tensor, Tensor]:
-#    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
-#        labels = torch.arange(embeddings_a.size(0), device=embeddings_a.device)
-#        print('In number 1')
-#        return embeddings_a, embeddings_b, labels
     embeddings_a_all_gpus = gather_tensor(embeddings_a, backprop_type)
     embeddings_b_all_gpus = gather_tensor(embeddings_b, backprop_type)
-    #print(f"{embeddings_a_all_gpus = }")
-    #print(f"{embeddings_b_all_gpus = }")
-    # embeddings_a has shape [local_batch_size, embedding_dim]
     local_batch_size = embeddings_a.size(0)
     labels = local_batch_size * xm.get_ordinal() + torch.arange(
         local_batch_size, device=embeddings_a.device
     )
 
     return (
-        #torch.cat(embeddings_a_all_gpus),
         embeddings_a_all_gpus,
-        #torch.cat(embeddings_b_all_gpus),
         embeddings_b_all_gpus,
         labels,
     )

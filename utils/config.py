@@ -11,11 +11,11 @@ def get_cfg_defaults_train():
     Default config options for training
     """
     config = CN(new_allowed=True)
-    config.encoder_configs = CN(new_allowed=True) #None #{}
+    config.encoder_configs = CN(new_allowed=True)
     config.modality_configs = CN(new_allowed=True)
     config.predrop = False
     config.label_col = "Labels"
-    config.restart = "" #'training_output_21_31_23_10_2023'
+    config.restart = ""
     config.wandb_name = "No Name"
     config.wandb_restart = ""
     config.epochs = 3
@@ -24,14 +24,14 @@ def get_cfg_defaults_train():
     config.num_warmup_steps = 3000
     config.lr_scheduler_type = "cosine"
     config.lr = 1e-4
-    config.output_dir = "" #datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
+    config.output_dir = ""
     config.hidden_size = 512
     config.layers = 10
     config.heads = 8  # num heads
     config.dim_head = 64
     config.ff_mult = 4  # Feed forward multiplier
     config.num_fusion_tokens = 256
-    config.dataset = "/shared/dataset3M" #"/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
+    config.dataset = ""
     config.split = 0.1
     config.ds_frac = 1.0
     config.ds_seed = 42
@@ -46,7 +46,6 @@ def get_cfg_defaults_train():
     config.n_step_checkpoint = 20000
     config.run_eval_loop = True
     config.vocab_size = 20000 #36602
-    #config.inverse_doom = False
     config.bimodal_contrastive = False
     config.non_fusion_fcl = False
     config.fcl = False
@@ -69,8 +68,7 @@ def restart_cfg(config):
         # Allow creating new keys recursively.
         config.set_new_allowed(True)
         config.merge_from_file(os.path.join(config.restart, 'config.yaml'))
-        config.epochs = 1 ### WILL NEED TO SPECIFY NUMBER OF EPOCHS TO CONTINUE WITH HERE
-        ### New Output directory!!
+        config.epochs = 1
         config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
         config.reset_lr = 0.0001
     return config
@@ -105,9 +103,7 @@ def get_model_config(config):
         "ff_mult": config.ff_mult,  # Feed forward multiplier
         "num_fusion_tokens": config.num_fusion_tokens,
         "encoder_configs": config.encoder_configs,
-       #"vocab_size": config.vocab_size,
         "batch_size": config.batch_size,
-        #"inverse_doom": config.inverse_doom,
         "fcl": config.fcl,
         "fcl_root": config.fcl_root,
         "bimodal_contrastive": config.bimodal_contrastive,

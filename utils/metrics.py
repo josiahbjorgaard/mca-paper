@@ -5,7 +5,6 @@ from torchmetrics.utilities.data import dim_zero_cat
 from torch.nn.functional import normalize
 from torch import nn
 from tqdm import tqdm
-#from torchmetrics.utilities import dim_zero_cat
 
 # Below is directly from Wang and Isola 2021 Understanding Contrastive Rep Learning...
 
@@ -69,9 +68,7 @@ class Uniformity(Metric):
         preds = dim_zero_cat(self.preds)
         return lunif(preds, self.t, norm)
 
-#TBD
 def compute_cosines(embedding, embeddings):
-    #for k,v in embeddings.items():
     cos0 = torch.nn.CosineSimilarity(dim=1)
     return cos0(embedding.unsqueeze(0).repeat(embeddings.shape[0],1), embeddings)
 

@@ -15,22 +15,16 @@ seed: 43
 ds_seed: 43
 batch_size: 8
 lr: 0.0001
-wandb_name: "MFDOOM_Paper_CMU"                                    
 layers: 5 #12
 lr_scheduler_type: "cosine"
 epochs: 32
-#start_epoch: 22
 bimodal_contrastive: False
 non_fusion_fcl: False
 fcl: False
 fcl_root: [0,1,2,3]
 fusion_combos: [4,3,2]
 loss_masking: True
-#inverse_doom: true
 zorro: True
-#output_dir: "training_output_22_02_13_12_2023"
-#restart: "training_output_22_02_13_12_2023/21"
-#restart_wandb: "0l846v73"
 clip: 2.0
 dataset: "/shared/cmu"
 

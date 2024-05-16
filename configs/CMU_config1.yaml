@@ -17,7 +17,6 @@ ds_seed: 43
 seed: 43
 lr: 0.0001
 layers: 5 #12
-wandb_name: "MFDOOM_Paper_CMU_MFDOOM"
 lr_scheduler_type: "cosine"
 epochs: 32
 #start_epoch: 22

@@ -18,7 +18,6 @@ lr: 0.0001
 layers: 5 #12
 lr_scheduler_type: "cosine" #constant_with_warmup"
 epochs: 32
-#start_epoch: 22
 bimodal_contrastive: False
 non_fusion_fcl: False
 fcl: False #True
@@ -26,13 +25,11 @@ fcl_root: [0,1,2,3]
 do_fcl: False
 fusion_combos: [4,3,2]
 loss_masking: True
-#inverse_doom: true
 zorro: True
 no_fusion: False
 everything_at_once: False
 output_dir: "training_output_01_27_27_02_2024_2_30i"
 restart: "training_output_01_27_27_02_2024_2/30"
-#restart_wandb: "0l846v73"
 clip: 2.0
 dataset: "/shared/cmu"
 mean_pool: True
