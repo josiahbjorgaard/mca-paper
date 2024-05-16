@@ -2,7 +2,7 @@
 
 This repository is the official implementation of Sparse Multimodal Fusion with Modal Channel Attention
 
-![Model](./figures/figure0.svg)
+![Model](./figures/figure0.png)
 ![MCA](./figures/figure1a-x.png)
 
 
