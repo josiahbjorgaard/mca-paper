@@ -17,7 +17,6 @@ ds_seed: 43
 seed: 43
 lr: 0.0001
 layers: 5 #12
-wandb_name: "MFDOOM_Paper_CMU_MFDOOM"
 lr_scheduler_type: "cosine"
 epochs: 32
 #start_epoch: 22
@@ -33,5 +32,5 @@ output_dir: "training_output_21_26_07_03_2024_1"
 restart: "training_output_21_26_07_03_2024_1/12"
 #restart_wandb: "0l846v73"
 clip: 2.0
-dataset: "/shared/cmu"
+dataset: "data/cmu"
 

@@ -2,7 +2,11 @@ import os
 import h5py
 from collections import defaultdict
 import numpy as np
+from datasets import Dataset
+import datasets
+"This requires about 32GB memory"
 def data_generator():
+    #File path to CMU processed dataset using script in CMU MultimodalSDK library
     data_dir = '/efs-private/CMU-MultimodalSDK/examples/mmdatasdk_examples/full_examples/final_aligned'
     #filename = os.path.join(data_dir,'All Labels.csd')
     fs=dict()
@@ -17,6 +21,7 @@ def data_generator():
         for x,vx in fs.items():
             data[x] = np.float32(fs[x][list(fs[x].keys())[0]]['data'][key]['features'][:]) #.keys()
         yield data
-from datasets import Dataset
 ds = Dataset.from_generator(data_generator)
+#ds=datasets.load_from_disk('/shared/cmu.dataset')
+ds = ds.map(lambda x: {k: {'data':v} for k,v in x.items() if k != "Labels"}, num_proc=16)
 ds.save_to_disk('cmu.dataset')

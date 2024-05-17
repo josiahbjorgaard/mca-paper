@@ -3,8 +3,8 @@ import torch.nn.functional as F
 from torch import nn, einsum, Tensor
 from einops import rearrange, repeat, pack, unpack
 from itertools import chain, combinations
-#from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
-from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
+from torchmultimodal.modules.losses.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
+#from utils.contrastive_loss_with_temperature import ContrastiveLossWithTemperature
 from encoders import encoders_dict
 
 
@@ -339,7 +339,7 @@ class MCA(nn.Module):
         # transformer
         self.layers = nn.ModuleList([])
         for _ in range(depth):
-            self.layers.append(mcaLayer(dim, dim_head, heads, ff_mult))
+            self.layers.append(MCALayer(dim, dim_head, heads, ff_mult))
 
         self.norm = LayerNorm(dim)
         self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))

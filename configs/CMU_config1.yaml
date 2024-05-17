@@ -30,5 +30,5 @@ zorro: false
 #restart: "training_output_22_02_13_12_2023/21"
 #restart_wandb: "0l846v73"
 clip: 2.0
-dataset: "/shared/cmu"
+dataset: "data/cmu.dataset"
 

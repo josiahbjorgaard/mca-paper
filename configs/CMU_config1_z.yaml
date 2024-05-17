@@ -26,5 +26,5 @@ fusion_combos: [4,3,2]
 loss_masking: True
 zorro: True
 clip: 2.0
-dataset: "/shared/cmu"
+dataset: "data/cmu"
 

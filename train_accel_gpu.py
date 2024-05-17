@@ -115,7 +115,7 @@ for epoch in range(config.start_epoch,config.epochs):
         lr_scheduler.step()
 
         # Log and checkpoint
-        if idb % config.n_step_checkpoint == 0:
+        if config.n_step_checkpoint != 0 and idb % config.n_step_checkpoint == 0:
             accelerator.save_state(config.output_dir)
         if accelerator.is_main_process:
             progress_bar.update(world_size)

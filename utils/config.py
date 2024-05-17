@@ -18,10 +18,12 @@ def get_cfg_defaults_train():
     # Training and dataset configuration
     config.restart = "" # Model weights path for loading from file
     config.wandb_name = "No Name" # Name for WandB Project
+    config.wandb_account_name = "" # Your WandB account name
     config.wandb_restart = "" # WandB experiment code for restarting
     config.epochs = 3 # Number of epochs for training
     config.start_epoch = 0 # Epoch number for start (for restarting)
     config.batch_size = 32 # Batch size
+    config.n_step_checkpoint = 0
     config.num_warmup_steps = 3000 # Number of warmup steps for scheduler
     config.lr_scheduler_type = "cosine" # Scheduler type
     config.lr = 1e-4 # Learning rate
@@ -133,7 +135,7 @@ def get_cfg_defaults_embedding_eval():
     config.model_type = "linear"
     config.hidden_size = 256
     config.dropout = 0.1
-    config.wandb_name = "Embeddings Eval"
+    config.wandb_name = "MCA"
     config.lr = 1e-5
     config.lr_scheduler_type = "cosine"
     config.num_warmup_steps = 1000
@@ -142,8 +144,7 @@ def get_cfg_defaults_embedding_eval():
     config.clip = 2.0
     config.metric = "PCC"
     config.output_dir = ""
-    config.wandb_name = ""
-    config.wandb_job_name = ""
+    config.wandb_job_name = "MCA-DefaultJobName"
     config.seed = 42
     config.batch_size = 1024
     config.threshold = 0.0

@@ -1,6 +1,5 @@
 embedding_dir: "TCGA_z_d40_80i" # 'training_output_01_03_08_03_2024_1'
 wandb_job_name: 'mt_z_60e_40i'
-wandb_name: 'TCGA_Embedding_eval'
 rank_metrics: True
 model_type: "linear"
 epochs: 10001
