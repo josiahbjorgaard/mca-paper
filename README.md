@@ -23,6 +23,10 @@ To train the model, choose a configuration file from the configs directory and r
 accelerate launch train_accel_gpu.py <config_file_path>
 ```
 
+Preprocessed datasets are available to download with the following links
+* [TCGA Dataset (122MB)](https://mca-paper-neurips-2024.s3.us-west-2.amazonaws.com/tcga_dataset.tar.gz)
+* [CMU Dataset (38.2GB)](https://mca-paper-neurips-2024.s3.us-west-2.amazonaws.com/cmu.dataset.tar.gz)
+
 # Evaluation
 To evaluate the model, run an inference using pretrained model weights, then train a linear probe to fit a target property.
 
@@ -39,6 +43,15 @@ accelerate launch lp_accel_gpu.py <config_file_path>
 ```
 
 # Pre-trained Models
+
+The full set of model checkpoints have been made available for models trained using the described dataset modality dropout of 0.4 for the purpose of reproducing experiments.
+
+| Dataset | Model Type | Link                                                                                |
+|---------|-----|-------------------------------------------------------------------------------------|
+| TCGA    | MCA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_01_06_08_03_2024_2.tar.gz) |
+| TCGA    | MMA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_01_03_08_03_2024_1.tar.gz) |
+| CMU     | MCA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_19_23_06_03_2024_3)        |
+| CMU     | MMA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_19_23_06_03_2024_9)        |
 
 # Training with Other Datasets for Multimodal Fusion Embeddings
 
@@ -66,8 +79,10 @@ These configuration options define the number of modalities and encoding of the 
 
 ## Model configurations
 Depending on the alignment in multimodal data and general transformer encoder hyperparameters, you may change model configuration parameters. See `utils/config.py` for an extensive list of model hyperparameters.
+
 # Contributing
 
+Anonymized
 
 
 ## NeurIPS 2024 submission
