@@ -27,5 +27,5 @@ zorro: false
 output_dir: "training_output_03_00_22_02_2024_i24"
 restart: "training_output_03_00_22_02_2024/23"
 clip: 2.0
-dataset: "data/cmu"
+dataset: "data/cmu.dataset"
 

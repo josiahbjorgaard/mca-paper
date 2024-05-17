@@ -29,5 +29,5 @@ zorro: True
 no_fusion: False
 everything_at_once: False
 clip: 2.0
-dataset: "data/cmu"
+dataset: "data/cmu.dataset"
 mean_pool: True

@@ -32,5 +32,5 @@ output_dir: "training_output_23_29_28_02_2024_10"
 restart: "training_output_23_29_28_02_2024_10/12"
 #restart_wandb: "0l846v73"
 clip: 2.0
-dataset: "data/cmu"
+dataset: "data/cmu.dataset"
 

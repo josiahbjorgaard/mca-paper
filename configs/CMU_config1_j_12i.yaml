@@ -31,6 +31,6 @@ everything_at_once: False
 output_dir: "training_output_01_31_27_02_2024_1"
 restart: "training_output_01_31_27_02_2024_1/12"
 clip: 2.0
-dataset: "data/cmu"
+dataset: "data/cmu.dataset"
 mean_pool: True
 jepa_all: True

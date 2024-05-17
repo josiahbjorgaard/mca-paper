@@ -31,5 +31,5 @@ output_dir: "CMU_config1_z_bm_10i"  # "training_output_18_30_05_03_2024_7"
 restart: "training_output_18_30_05_03_2024_7/9"
 #restart_wandb: "0l846v73"
 clip: 2.0
-dataset: "data/cmu"
+dataset: "data/cmu.dataset"
 
