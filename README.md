@@ -1,7 +1,7 @@
 # Code for Sparse Multimodal Fusion with Modal Channel Attention
 
 This repository is the official implementation of Sparse Multimodal Fusion with Modal Channel Attention
-
+[https://arxiv.org/abs/2403.20280](https://arxiv.org/abs/2403.20280)
 ![Model](./figures/figure0.png)
 ![MCA](./figures/figure1a-x.png)
 
@@ -82,8 +82,5 @@ Depending on the alignment in multimodal data and general transformer encoder hy
 
 # Contributing
 
-Anonymized
-
-
-## NeurIPS 2024 submission
+Josiah Bjorgaard
 
