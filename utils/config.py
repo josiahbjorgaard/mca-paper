@@ -11,54 +11,52 @@ def get_cfg_defaults_train():
     Default config options for training
     """
     config = CN(new_allowed=True)
-    config.encoder_configs = CN(new_allowed=True) #None #{}
-    config.modality_configs = CN(new_allowed=True)
-    config.predrop = False
-    config.label_col = "Labels"
-    config.restart = "" #'training_output_21_31_23_10_2023'
-    config.wandb_name = "No Name"
-    config.wandb_restart = ""
-    config.epochs = 3
-    config.start_epoch = 0
-    config.batch_size = 2
-    config.num_warmup_steps = 3000
-    config.lr_scheduler_type = "cosine"
-    config.lr = 1e-4
-    config.output_dir = "" #datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
-    config.hidden_size = 512
-    config.layers = 10
+    config.encoder_configs = CN(new_allowed=True) # Encoder configuration
+    config.modality_configs = CN(new_allowed=True) # Collator configuration
+
+
+    # Training and dataset configuration
+    config.restart = "" # Model weights path for loading from file
+    config.wandb_name = "No Name" # Name for WandB Project
+    config.wandb_account_name = "" # Your WandB account name
+    config.wandb_restart = "" # WandB experiment code for restarting
+    config.epochs = 3 # Number of epochs for training
+    config.start_epoch = 0 # Epoch number for start (for restarting)
+    config.batch_size = 32 # Batch size
+    config.n_step_checkpoint = 0
+    config.num_warmup_steps = 3000 # Number of warmup steps for scheduler
+    config.lr_scheduler_type = "cosine" # Scheduler type
+    config.lr = 1e-4 # Learning rate
+    config.output_dir = "" # Output directory, created based on timestamp otherwise
+    config.label_col = "Labels" # Column name in dataset for labels
+    config.dataset = "" # Hugginfaces Datasets library dataset path
+    config.split = 0.1 # Train/Test split if not already split
+    config.ds_frac = 1.0 # Fraction of dataset to use
+    config.ds_seed = 42 # Dataset random Seed
+    config.clip = 0.0 # Gradient clipping factor
+
+
+    # Model configuration
+    config.hidden_size = 512 # Model hidden size
+    config.layers = 10 # Number of model layers
     config.heads = 8  # num heads
-    config.dim_head = 64
+    config.dim_head = 64 #Dimension of heads, generally hidden_size/layers
     config.ff_mult = 4  # Feed forward multiplier
-    config.num_fusion_tokens = 256
-    config.dataset = "/shared/dataset3M" #"/shared/fcaa53cd-ba57-4bfe-af9c-eaa958f95c1a_combined_all"
-    config.split = 0.1
-    config.ds_frac = 1.0
-    config.ds_seed = 42
-    config.seed = 42
-    config.mean_pool = False
-    config.dropout = 0.1
-    config.clip = 0.0
-    config.isolate_fusion_tokens = True
-    config.zorro = False
-    config.pad_len = 1024
-    config.model = 3
-    config.n_step_checkpoint = 20000
-    config.run_eval_loop = True
-    config.vocab_size = 20000 #36602
-    #config.inverse_doom = False
-    config.bimodal_contrastive = False
-    config.non_fusion_fcl = False
-    config.fcl = False
-    config.no_fusion = False
-    config.everything_at_once = False
-    config.fcl_root = [1,2,3,4,5]
-    config.fusion_combos = [5,4]
-    config.loss_masking = True
-    config.return_logits = True
-    config.ema_decay = 0.998
-    config.jepa_all = False
-    #If config.restart, will reset all config items to checkpoint yaml
+    config.num_fusion_tokens = 256 # Number of fusion tokens to use - must be divisible by number of channels (see paper)
+    config.seed = 42 # Python random seed
+    config.mean_pool = False # Use mean pooling instead of attentive pooling when True
+    config.dropout = 0.1 # Global dropout parameter for all dropout layers
+    config.zorro = False # Use the Zorro-type Masked-Multimodal Attention (No Modal Fusion Channels)
+    config.run_eval_loop = True # Set to run eval loop or disable it
+    config.bimodal_contrastive = True # If set to True, non-fusion unimodal-unimodal token pairs are contrasted
+    config.non_fusion_fcl = True # If set to True, fusion - non-fusion unimodal token pairs are contrasted
+    config.fcl = True # If set tot True, each fusion-fusion token pair is contrasted
+    config.no_fusion = False # If set to True, no fusion tokens are used
+    config.fcl_root = [1,2,3,4] # The root tuple of modalities, as ordered in encoder config. Generally is the combination of all modalities.
+    config.fusion_combos = [4,3,2] # The cardinalities of combinations to use. For example, [4,3] will use all 4-wise and 3-wise combinations of different modalities for fusion channels.
+    config.return_logits = True # If True, model will return logits with the loss
+    #N.B. If config.restart, will reset all config items to checkpoint yaml
+
     return config.clone()
 
 def restart_cfg(config):
@@ -69,8 +67,7 @@ def restart_cfg(config):
         # Allow creating new keys recursively.
         config.set_new_allowed(True)
         config.merge_from_file(os.path.join(config.restart, 'config.yaml'))
-        config.epochs = 1 ### WILL NEED TO SPECIFY NUMBER OF EPOCHS TO CONTINUE WITH HERE
-        ### New Output directory!!
+        config.epochs = 1
         config.output_dir = datetime.now().strftime('training_output_%H_%M_%d_%m_%Y')
         config.reset_lr = 0.0001
     return config
@@ -105,18 +102,14 @@ def get_model_config(config):
         "ff_mult": config.ff_mult,  # Feed forward multiplier
         "num_fusion_tokens": config.num_fusion_tokens,
         "encoder_configs": config.encoder_configs,
-       #"vocab_size": config.vocab_size,
         "batch_size": config.batch_size,
-        #"inverse_doom": config.inverse_doom,
         "fcl": config.fcl,
         "fcl_root": config.fcl_root,
         "bimodal_contrastive": config.bimodal_contrastive,
         "non_fusion_fcl": config.non_fusion_fcl,
         "fusion_combos": config.fusion_combos,
-        "loss_masking": config.loss_masking,
         "zorro": config.zorro,
         "no_fusion": config.no_fusion,
-        "everything_at_once": config.everything_at_once,
         "mean_pool": config.mean_pool
     }
     return model_config
@@ -142,7 +135,7 @@ def get_cfg_defaults_embedding_eval():
     config.model_type = "linear"
     config.hidden_size = 256
     config.dropout = 0.1
-    config.wandb_name = "Embeddings Eval"
+    config.wandb_name = "MCA"
     config.lr = 1e-5
     config.lr_scheduler_type = "cosine"
     config.num_warmup_steps = 1000
@@ -151,7 +144,7 @@ def get_cfg_defaults_embedding_eval():
     config.clip = 2.0
     config.metric = "PCC"
     config.output_dir = ""
-    config.wandb_job_name = ""
+    config.wandb_job_name = "MCA-DefaultJobName"
     config.seed = 42
     config.batch_size = 1024
     config.threshold = 0.0
@@ -170,8 +163,6 @@ def embedding_eval_config(filename):
             config.output_dir = output_dir + f'_{i}'
             i+=1
     print(new_config)
-    #config.merge_from_file(filename)
     config.merge_from_other_cfg(new_config)
     dump_configs(config, config.output_dir)
-    #config.freeze()
     return config

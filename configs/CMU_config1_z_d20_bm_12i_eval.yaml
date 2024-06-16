@@ -1,0 +1,8 @@
+embedding_dir: 'training_output_14_13_08_03_2024'
+wandb_job_name: 'z0_bm_d20_12e'
+rank_metrics: True
+model_type: "skip"
+epochs: 5120
+loss_type: "L1"
+metric: "PCC"
+task: 0

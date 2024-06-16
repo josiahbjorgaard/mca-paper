@@ -1,0 +1,8 @@
+embedding_dir: "CMU_config1_z_d20_bm_32i" # 'training_output_14_13_08_03_2024'
+wandb_job_name: 'z0_bm_d20_32e'
+rank_metrics: True
+model_type: "skip"
+epochs: 5120
+loss_type: "L1"
+metric: "PCC"
+task: 0

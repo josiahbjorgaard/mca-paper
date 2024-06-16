@@ -1,0 +1,10 @@
+embedding_dir: 'training_output_00_48_08_03_2024_3'
+wandb_job_name: 'mt_60e_20i'
+rank_metrics: True
+model_type: "linear"
+epochs: 10001
+loss_type: "BCE"
+metric: "F1"
+task: -1
+lr: 1e-4
+lr: 1e-4

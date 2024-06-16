@@ -21,15 +21,12 @@ from accelerate import Accelerator
 
 class FineTuneDataset(Dataset):
     def __init__(self, embeddings, labels, key='fusion',index = 0,transform=None, target_transform=None):
-        #self.embeddings = torch.cat([embeddings[k] for k in embeddings.keys()],dim=1)
         self.embeddings = embeddings[key]
         if index == -1:
             self.labels=labels
         else:
             self.labels = labels[:,index] #First is a sentiment [-3,3] -3: negative 3:postive, next is 6 labels for emotions [0,3] where 3 is strong and 0 is no x and 3 is strong x
         print(f"{self.labels.shape = }")
-        #if index > 0:
-        #    self.labels = self.labels/3.0
         self.transform = transform
         self.target_transform = target_transform
     def __len__(self):
@@ -41,7 +38,7 @@ accelerator = Accelerator(log_with="wandb")
 config = embedding_eval_config(sys.argv[1])
 
 # Initialise your wandb run, passing wandb parameters and any config information
-init_kwargs={"wandb": {"entity": "josiahbjorgaard", "name":config.wandb_job_name}}
+init_kwargs={"wandb": {"entity": config.wandb_account_name, "name":config.wandb_job_name}}
 accelerator.init_trackers(
     project_name=config.wandb_name,
     config=dict(config),

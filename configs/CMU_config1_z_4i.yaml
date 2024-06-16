@@ -1,0 +1,35 @@
+encoder_configs:
+  COVAREP: {type: 'EmbeddedSequenceEncoder', input_size: 74, max_tokens: 1500}
+  FACET: {type: 'EmbeddedSequenceEncoder', input_size: 35, max_tokens: 450}
+  OpenFace: {type: 'EmbeddedSequenceEncoder', input_size: 713, max_tokens: 450}
+  glove_vectors: {type: 'EmbeddedSequenceEncoder', input_size: 300, max_tokens: 50}
+modality_config:
+  COVAREP: {type: 'embedded_sequence', pad_len: 1500, data_col_name: "data", pad_token: -10000}
+  FACET: {type: 'embedded_sequence', pad_len: 450,  data_col_name: "data", pad_token: -10000}
+  OpenFace: {type: 'embedded_sequence', pad_len: 450, data_col_name: "data", pad_token: -10000}
+  glove_vectors: {type: 'embedded_sequence', pad_len: 50, data_col_name: "data", pad_token: -10000}
+num_fusion_tokens: 88
+ds_frac: 1.0
+predrop: false
+seed: 43
+ds_seed: 43
+batch_size: 8
+lr: 0.0001
+layers: 5 #12
+lr_scheduler_type: "cosine"
+epochs: 32
+#start_epoch: 22
+bimodal_contrastive: False
+non_fusion_fcl: False
+fcl: False
+fcl_root: [0,1,2,3]
+fusion_combos: [4,3,2]
+loss_masking: True
+#inverse_doom: true
+zorro: True
+output_dir: "training_output_21_00_26_02_2024_4_i4"
+restart: "training_output_21_00_26_02_2024_4/4"
+#restart_wandb: "0l846v73"
+clip: 2.0
+dataset: "data/cmu.dataset"
+

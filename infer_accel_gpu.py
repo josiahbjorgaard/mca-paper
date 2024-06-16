@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from collections import defaultdict
 
-from model import MFDOOM
+from model import MCA
 from encoders import MultimodalCollator
 from utils.training import get_param_norm, get_grad_norm, count_parameters, move_to
 from utils.config import training_config, get_model_config
@@ -46,17 +46,17 @@ metrics_uniformity = {k: Uniformity() for k in config.modality_config.keys()}
 metrics_uniformity['fusion'] = Uniformity() #add fusion token
 
 # Model
-model = MFDOOM(**model_config)
+model = MCA(**model_config)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
 # Initialise your wandb run, passing wandb parameters and any config information
-init_kwargs={"wandb": {"entity": "josiahbjorgaard"}}
+init_kwargs={"wandb": {"entity": config.wandb_account_name}}
 if config.wandb_restart:
     init_kwargs["wandb"]["id"]=config.wandb_restart
     init_kwargs["wandb"]["resume"]="must"
 accelerator.init_trackers(
-    project_name="MFDOOM_Paper_Inference",
+    project_name="MCA_Paper_Inference",
     config=dict(config),
     init_kwargs=init_kwargs
     )

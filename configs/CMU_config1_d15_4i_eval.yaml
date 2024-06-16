@@ -1,0 +1,8 @@
+embedding_dir: "CMU_config1_d15_4i" # 'training_output_04_15_29_02_2024'
+wandb_job_name: 'm0_15d_4e'
+rank_metrics: True
+model_type: "linear"
+epochs: 5120
+loss_type: "BCE"
+metric: "F1"
+task: 2

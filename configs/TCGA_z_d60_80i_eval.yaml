@@ -1,0 +1,9 @@
+embedding_dir: "TCGA_z_d60_80i" # 'training_output_05_55_08_03_2024_1'
+wandb_job_name: 'mt_z_60e_80i'
+rank_metrics: True
+model_type: "linear"
+epochs: 10001
+loss_type: "BCE"
+metric: "F1"
+task: -1
+lr: 1e-4

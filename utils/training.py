@@ -43,7 +43,6 @@ def count_parameters(model,print_summary=False):
                 n_param_embedding+=p.numel()
             else:
                 n_param_nonembedding+=p.numel()
-    #return sum(p.numel() for p in model.parameters() if p.requires_grad)
     return n_param_embedding, n_param_nonembedding
 
 def get_param_norm(model,norm_type=2.0):
