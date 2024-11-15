@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from collections import defaultdict
 
-from model import MCA
+from model import MCA, EAO
 from encoders import MultimodalCollator
 from utils.training import get_param_norm, get_grad_norm, count_parameters, move_to
 from utils.config import training_config, get_model_config
@@ -47,7 +47,10 @@ metrics_uniformity = {k: Uniformity() for k in config.modality_config.keys()}
 metrics_uniformity['fusion'] = Uniformity() #add fusion token
 
 # Model
-model = MCA(**model_config)
+if model_config['eao']:
+    model = EAO(**model_config)
+else:
+    model = MCA(**model_config)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
