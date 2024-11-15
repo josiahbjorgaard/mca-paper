@@ -466,3 +466,124 @@ class MCA(nn.Module):
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss=no_loss)
         loss['modality_sample_mask']=modality_sample_mask
         return loss
+
+
+class EAO(nn.Module):
+    def __init__(
+            self,
+            encoder_configs,
+            dim,
+            depth,
+            dim_head=64,
+            heads=8,
+            ff_mult=4,
+            num_fusion_tokens=16,
+            batch_size=8,
+            return_padding=False,
+            return_logits=False,
+            bimodal_contrastive=False,
+            non_fusion_fcl=False,
+            fcl=False,  # Fusion channel loss
+            fcl_root=[1, 2, 3, 4, 5],  # Root channel for Fusion channel loss, almost always all
+            fusion_combos=[4, 5],  # Powers of fusion channels to mask in attention
+            zorro=False,  # Replicate the ZORRO paper
+            no_fusion=False,
+            mean_pool=False,
+            **kwargs
+    ):
+        super().__init__()
+        print(f"Got kwargs: {kwargs}")
+        self.batch_size = batch_size
+        self.fusion_combos = [frozenset(x) for x in adjusted_powerset(list(range(len(encoder_configs))), fusion_combos)]
+        if no_fusion:  # No Fusion loss,
+            self.fcl_root = None
+            num_fusion_tokens = 0
+            return_token_types = list(range(len(encoder_configs)))
+        self.max_return_tokens = len(return_token_types)
+        self.return_token_types = return_token_types
+        return_token_types_tensor = torch.tensor(return_token_types)
+        self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
+
+        self.heads = heads
+
+        self.return_padding = return_padding
+        self.return_logits = return_logits
+
+        self.encoders = nn.ModuleDict({modality_name: encoders_dict[encoder_config['type']](**encoder_config)
+                                       for modality_name, encoder_config in encoder_configs.items()})
+        self.modality_types = list(encoder_configs.keys())
+        self.token_dims = [encoder_configs[token_type]['max_tokens'] for token_type in self.modality_types]
+
+        # transformer
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(MCALayer(dim, dim_head, heads, ff_mult))
+        self.norm = LayerNorm(dim)
+        self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
+        if mean_pool:
+            self.return_tokens = None
+            self.attn_pool = MeanTokenProjectionPool(self.token_types, in_dim=dim, out_dim=dim, projection=False)
+        else:
+            self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
+            self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.loss = MCAPretrainingLoss(self.modality_types,
+                                       do_fcl=fcl and not zorro,
+                                       fusion_combos=self.fusion_combos,
+                                       fcl_root=self.fcl_root,
+                                       bimodal_contrastive=bimodal_contrastive,
+                                       no_fusion=no_fusion,
+                                       non_fusion_fcl=non_fusion_fcl)
+
+    def create_token_types_tensor(self, dim_list, num_fusion_tokens):
+        """
+        returns e.g. tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, -1])
+        """
+        return torch.tensor([x for y in [[i] * n
+                                         for i, n in enumerate(dim_list)]
+                             for x in y] + [self.fusion_token] * num_fusion_tokens,
+                            dtype=torch.long)
+
+    def single_pass(self,
+                    tokens,
+                    padding):
+        for idx, layer in enumerate(self.layers):
+            tokens = layer(tokens, padding)
+        tokens = self.norm(tokens)
+        if self.return_tokens is not None:  # Standard Zorro/MCA Pooling
+            return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
+            pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask,
+                                           key_padding_mask=padding) + return_tokens
+        else:
+            pooled_tokens = self.attn_pool(tokens, key_padding_mask=padding)  # Mean pooling
+        return pooled_tokens
+
+    def forward(
+            self,
+            batch,  # dict like {modality_name: modality_data_dict} batch is first index of each modality
+            no_loss=False,
+    ):
+        # Concatenate samples and prepare attention masks
+        batch_size = self.batch_size
+        tokens, attention_masks = zip(*[self.encoders[modality_name](batch[modality_name])
+                                        for modality_name in self.modality_types])  # in case order mixed up
+        tokens, attention_masks = list(tokens), list(attention_masks)
+        modality_sample_mask = {k: (x == 0).sum(dim=1) != 0 for k, x in zip(self.modality_types, attention_masks)}
+        if not self.no_fusion:
+            fusion_tokens = repeat(self.fusion_tokens, 'n d -> b n d', b=batch_size)
+            tokens.append(fusion_tokens)
+            fusion_mask = repeat(self.fusion_mask, 'n -> b n', b=batch_size)
+            attention_masks.append(fusion_mask)
+
+        #Run a forward pass of the transformer attention block for each modality or each set of modalities
+        pooled_tokens = []
+        for token_types in self.fusion_combos:
+            tokens, ps = pack([tokens[i] for i in token_types], 'b * d')
+            padding, ps = pack([attention_masks[i] for i in token_types], 'b *')
+            padding = padding.to(torch.bool)
+            pooled_tokens.append(self.single_pass(tokens, padding))
+        pooled_tokens = torch.cat(pooled_tokens, dim=1)
+
+        # attend and feedforward
+        loss = self.loss(pooled_tokens, modality_sample_mask, no_loss=no_loss)
+        loss['modality_sample_mask'] = modality_sample_mask
+        return loss
