@@ -28,12 +28,13 @@ fusion_combos: [2]
 loss_masking: True
 #inverse_doom: true
 zorro: false
+zorro: false
 wandb_name: EAO
 eao: true
 no_fusion: true
 mean_pool: true
-  #output_dir: "training_output_22_02_13_12_2023"
-#restart: "training_output_22_02_13_12_2023/21"
+output_dir: "TCGA_config1_EAO_45i"  # "training_output_00_48_08_03_2024_1"
+restart: "training_output_16_55_16_11_2024/45"
 #restart_wandb: "0l846v73"
 clip: 2.0
 dataset: "data/tcga_dataset"

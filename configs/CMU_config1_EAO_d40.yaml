@@ -28,9 +28,11 @@ fusion_combos: [2]
 loss_masking: True
 #inverse_doom: true
 zorro: false
+wandb_name: EAO
 eao: true
+no_fusion: true
 mean_pool: true
-#output_dir: "training_output_23_54_05_03_2024_2"
+  #output_dir: "training_output_23_54_05_03_2024_2"
 #restart: "training_output_23_54_05_03_2024_2/12"
 #restart_wandb: "0l846v73"
 clip: 2.0

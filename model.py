@@ -591,7 +591,6 @@ class EAO(nn.Module):
 
         # attend and feedforward
         loss = self.loss(pooled_tokens, modality_sample_mask, no_loss=no_loss)
-        print(loss['losses'].keys())
         loss['modality_sample_mask'] = modality_sample_mask
         
         return loss
