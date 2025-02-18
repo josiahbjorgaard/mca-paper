@@ -32,7 +32,7 @@ wandb_name: EAO
 eao: true
 no_fusion: true
 mean_pool: true
-  #output_dir: "training_output_22_02_13_12_2023"
+ #output_dir: "training_output_22_02_13_12_2023"
 #restart: "training_output_22_02_13_12_2023/21"
 #restart_wandb: "0l846v73"
 clip: 2.0
