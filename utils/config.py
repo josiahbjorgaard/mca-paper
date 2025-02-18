@@ -47,6 +47,7 @@ def get_cfg_defaults_train():
     config.mean_pool = False # Use mean pooling instead of attentive pooling when True
     config.dropout = 0.1 # Global dropout parameter for all dropout layers
     config.zorro = False # Use the Zorro-type Masked-Multimodal Attention (No Modal Fusion Channels)
+    config.eao = False # Use Everything at Once model (No overall fusion)
     config.run_eval_loop = True # Set to run eval loop or disable it
     config.bimodal_contrastive = True # If set to True, non-fusion unimodal-unimodal token pairs are contrasted
     config.non_fusion_fcl = True # If set to True, fusion - non-fusion unimodal token pairs are contrasted
@@ -109,6 +110,7 @@ def get_model_config(config):
         "non_fusion_fcl": config.non_fusion_fcl,
         "fusion_combos": config.fusion_combos,
         "zorro": config.zorro,
+        "eao": config.eao,
         "no_fusion": config.no_fusion,
         "mean_pool": config.mean_pool
     }

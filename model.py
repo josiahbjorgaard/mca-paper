@@ -148,6 +148,7 @@ class MCAPretrainingLoss(nn.Module):
         self.do_fcl = do_fcl
         self.no_fusion = no_fusion
         self.fusion_combos = fusion_combos
+        fcl_root = fusion_combos[0]
         self.loss_fn = ContrastiveLossWithTemperature()
         self.loss = ContrastiveLossWithTemperature if separate_modal_loss_fns else lambda: self.loss_fn #If not separate return same instance for all
         if self.do_fcl:
@@ -180,11 +181,12 @@ class MCAPretrainingLoss(nn.Module):
         outputs = {modality_name: pooled_tokens[:, i, :].squeeze(1)
                    for i, modality_name in enumerate(self.modality_names)}
         if self.do_fcl: #Add extra fusion tokens
-            mlen = len(self.modality_names) #First fusion token is all, the rest are modality-specific
+            mlen = len(self.modality_names) #Warn this -1 may need to be removed if fusion token is there #The number of unimodal tokens
             for i, fusion_combo in enumerate(self.fusion_combos):
                 assert i+mlen < pooled_tokens.shape[1]
                 outputs[fusion_combo] = pooled_tokens[:, i+mlen,:].squeeze(1) #Indexed by tuple of the token indices
-            outputs['fusion'] = outputs[self.fcl_root] #Copy it twice because it's easier
+            if not self.no_fusion:
+                outputs['fusion'] = outputs[self.fcl_root] #Copy it twice because it's easier
         elif not self.no_fusion: #Otherwise just one fusion token after unimodal tokens
             outputs['fusion'] = pooled_tokens[:, len(self.modality_names)].squeeze(1)
 
@@ -208,15 +210,16 @@ class MCAPretrainingLoss(nn.Module):
         if self.do_fcl:
             for k in self.fcl_losses.keys():
                 mask = torch.stack([sample_mask[self.modality_names[i]] for i in k]).sum(dim=0).to(torch.bool) if self.masking else None
-                this_loss = self.fcl_losses[k](outputs['fusion'], outputs[k], mask=mask)
-                outputs['losses'][f"fcl_fusion|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
+                if not self.no_fusion:
+                    this_loss = self.fcl_losses[k](outputs['fusion'], outputs[k], mask=mask)
+                    outputs['losses'][f"fcl_fusion|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
                 if self.non_fusion_fcl:
                     for mod in self.modality_names:
                         mod_mask = (sample_mask[mod]*mask).to(torch.bool) if self.masking else None
                         this_loss = self.fcl_losses[k](outputs[mod], outputs[k], mask=mod_mask)
                         outputs['losses'][f"fcl_{mod}|{'_'.join(sorted([self.modality_names[i] for i in k]))}"] = this_loss
-            outputs['losses']["fcl"] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' in k]).mean()
-            outputs['losses']["no-fcl"] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' not in k]).mean()
+            outputs['fcl_loss'] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' in k]).mean()
+            outputs['no-fcl_loss'] = torch.stack([torch.nan_to_num(v) for k,v in outputs['losses'].items() if 'fcl' not in k]).mean()
         # Zero out NaN losses (batches with all masked samples give NaN) and average
         loss_list = [x for x in outputs['losses'].values()]
         loss_tensor = torch.tensor(loss_list)
@@ -237,25 +240,32 @@ class MeanTokenProjectionPool(nn.Module):
                  projection = True):
         super().__init__()
         self.token_types = token_types_tensor #.unsqueeze(1).repeat(1, in_dim)
-        t = token_types_tensor.unique().flip(0)
-        t[t>=0] = t[t>=0].flip(0) #Rearrange so the order is the same as other pooling (ids > 0 are at tail)
-        self.token_types_unique = t.tolist()
+        if self.token_types is not None:
+            t = token_types_tensor.unique().flip(0)
+            t[t>=0] = t[t>=0].flip(0) #Rearrange so the order is the same as other pooling (ids > 0 are at tail)
+            self.token_types_unique = t.tolist()
+            self.num_token_types = len(token_types_tensor.unique())
+            self.proj = nn.ModuleList([nn.Linear(in_dim, out_dim) if projection else nn.Identity() for _ in self.token_types_unique])
+        else:
+            self.proj = [nn.Linear(in_dim, out_dim) if projection else nn.Identity()]
+            self.num_token_types = 1
+            self.token_types_unique = [1]
         self.out_dim=out_dim
-        print(f"{self.token_types.unique(return_counts=True) = }")
-        self.num_token_types = len(token_types_tensor.unique())
         #Rearrange token type values so negative token ids go after positives
-        self.proj = nn.ModuleList([nn.Linear(in_dim, out_dim) if projection else nn.Identity() for _ in self.token_types_unique])
 
-    def forward(self, batch, key_padding_mask, **kwargs):
+    def forward(self, batch, key_padding_mask, use_all=False, **kwargs):
         # Batch is b x t x d and reduction is on
         # Scatter padded entries into a dummy index and then discard at the end (masked fill part)
         b, t, d = batch.shape
         output = []
         for idx, layer in zip(self.token_types_unique,self.proj): #For each modality
-            matching_indices = (self.token_types == idx).to(key_padding_mask.device)
+            matching_indices = (self.token_types == idx).to(key_padding_mask.device) if self.token_types else None
             batch_means = []
             for i in range(b):
-                x = batch[i,matching_indices]# * ~key_padding_mask[i,:], :]
+                if  not self.token_types:
+                    x = batch[i,~key_padding_mask[i,:],:]
+                else:
+                    x = batch[i,matching_indices * ~key_padding_mask[i,:], :]
                 if x.shape[0] == 0:
                     x = torch.zeros(x.shape[1], device=x.device)
                 else:
@@ -465,4 +475,122 @@ class MCA(nn.Module):
             pooled_tokens = self.attn_pool(tokens, key_padding_mask = padding) #Mean pooling
         loss = self.loss(pooled_tokens, modality_sample_mask,  no_loss=no_loss)
         loss['modality_sample_mask']=modality_sample_mask
+        return loss
+
+
+class EAO(nn.Module):
+    def __init__(
+            self,
+            encoder_configs,
+            dim,
+            depth,
+            dim_head=64,
+            heads=8,
+            ff_mult=4,
+            num_fusion_tokens=16,
+            batch_size=8,
+            return_padding=False,
+            return_logits=False,
+            bimodal_contrastive=False,
+            non_fusion_fcl=False,
+            fcl=False,  # Fusion channel loss
+            fcl_root=[1, 2, 3, 4, 5],  # Root channel for Fusion channel loss, almost always all
+            fusion_combos=[4, 5],  # Powers of fusion channels to mask in attention
+            zorro=False,  # Replicate the ZORRO paper
+            no_fusion=True,
+            mean_pool=True,
+            **kwargs
+    ):
+        super().__init__()
+        print(f"Got kwargs: {kwargs}")
+        self.batch_size = batch_size
+        self.fusion_combos = [frozenset(x) for x in adjusted_powerset(list(range(len(encoder_configs))), fusion_combos)]
+        self.fcl_root = None
+        num_fusion_tokens = 0
+        self.fusion_token = -1
+        return_token_types = list(range(len(encoder_configs)))
+        self.max_return_tokens = len(return_token_types)
+        self.return_token_types = return_token_types
+        return_token_types_tensor = torch.tensor(return_token_types)
+        self.register_buffer('return_token_types_tensor', return_token_types_tensor, persistent=False)
+
+        self.heads = heads
+
+        self.return_padding = return_padding
+        self.return_logits = return_logits
+
+        self.encoders = nn.ModuleDict({modality_name: encoders_dict[encoder_config['type']](**encoder_config)
+                                       for modality_name, encoder_config in encoder_configs.items()})
+        self.modality_types = list(encoder_configs.keys())
+        self.token_dims = [encoder_configs[token_type]['max_tokens'] for token_type in self.modality_types]
+
+        # transformer
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(MCALayer(dim, dim_head, heads, ff_mult))
+        self.norm = LayerNorm(dim)
+        self.register_buffer('token_types', self.create_token_types_tensor(self.token_dims, num_fusion_tokens))
+        if mean_pool:
+            self.return_tokens = None
+            self.attn_pool = MeanTokenProjectionPool(None, in_dim=dim, out_dim=dim, projection=False)
+        else:
+            self.return_tokens = nn.Parameter(torch.randn(self.max_return_tokens, dim))
+            self.attn_pool = Attention(dim=dim, dim_head=dim_head, heads=heads)
+        self.loss = MCAPretrainingLoss(self.modality_types,
+                                       do_fcl=fcl and not zorro,
+                                       fusion_combos=self.fusion_combos,
+                                       fcl_root=self.fcl_root,
+                                       bimodal_contrastive=bimodal_contrastive,
+                                       no_fusion=no_fusion,
+                                       non_fusion_fcl=non_fusion_fcl)
+
+    def create_token_types_tensor(self, dim_list, num_fusion_tokens):
+        """
+        returns e.g. tensor([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, -1])
+        """
+        return torch.tensor([x for y in [[i] * n
+                                         for i, n in enumerate(dim_list)]
+                             for x in y] + [self.fusion_token] * num_fusion_tokens,
+                            dtype=torch.long)
+
+    def single_pass(self,
+                    tokens,
+                    padding):
+        batch_size = tokens.shape[0]
+        for idx, layer in enumerate(self.layers):
+            tokens = layer(tokens, attn_mask = None, padding_mask = padding)
+        tokens = self.norm(tokens)
+        if self.return_tokens is not None:  # Standard Zorro/MCA Pooling
+            return_tokens = repeat(self.return_tokens, 'n d -> b n d', b=batch_size)
+            pooled_tokens = self.attn_pool(return_tokens, tokens, attn_mask=self.pool_mask,
+                                           key_padding_mask=padding) + return_tokens
+        else:
+            pooled_tokens = self.attn_pool(tokens, key_padding_mask=padding)  # Mean pooling
+        return pooled_tokens
+
+    def forward(
+            self,
+            batch,  # dict like {modality_name: modality_data_dict} batch is first index of each modality
+            no_loss=False,
+    ):
+        # Concatenate samples and prepare attention masks
+        batch_size = self.batch_size
+        tokens, attention_masks = zip(*[self.encoders[modality_name](batch[modality_name])
+                                        for modality_name in self.modality_types])  # in case order mixed up
+        all_tokens, all_attention_masks = list(tokens), list(attention_masks)
+        modality_sample_mask = {k: (x == 0).sum(dim=1) != 0 for k, x in zip(self.modality_types, attention_masks)}
+
+        #Run a forward pass of the transformer attention block for each modality or each set of modalities
+        pooled_tokens = []
+        for token_types in [[x] for x in range(len(self.modality_types))] + self.fusion_combos:
+            tokens, ps = pack([all_tokens[i] for i in token_types], 'b * d')
+            padding, ps = pack([all_attention_masks[i] for i in token_types], 'b *')
+            padding = padding.to(torch.bool)
+            pooled_tokens.append(self.single_pass(tokens, padding))
+        pooled_tokens = torch.cat(pooled_tokens, dim=1)
+
+        # attend and feedforward
+        loss = self.loss(pooled_tokens, modality_sample_mask, no_loss=no_loss)
+        loss['modality_sample_mask'] = modality_sample_mask
+        
         return loss

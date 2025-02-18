@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from collections import defaultdict
 
-from model import MCA
+from model import MCA, EAO
 from encoders import MultimodalCollator
 from utils.training import get_param_norm, get_grad_norm, count_parameters, move_to
 from utils.config import training_config, get_model_config
@@ -44,10 +44,14 @@ device = accelerator.device
 # Metrics config
 metrics_alignment = {k: Alignment() for k in config.modality_config.keys()}
 metrics_uniformity = {k: Uniformity() for k in config.modality_config.keys()}
-metrics_uniformity['fusion'] = Uniformity() #add fusion token
+if not model_config['eao']:
+    metrics_uniformity['fusion'] = Uniformity() #add fusion token
 
 # Model
-model = MCA(**model_config)
+if model_config['eao']:
+    model = EAO(**model_config)
+else:
+    model = MCA(**model_config)
 
 config.n_params_emb, config.n_params_nonemb = count_parameters(model, print_summary=False)
 
@@ -63,7 +67,7 @@ accelerator.init_trackers(
     )
 
 # Creating a DataLoader object for iterating over it during the training epochs
-train_dl = DataLoader( datasets["train"], collate_fn=default_data_collator, batch_size=config.batch_size, shuffle=True, num_workers=8, prefetch_factor=16)
+train_dl = DataLoader( datasets["train"], collate_fn=default_data_collator, batch_size=config.batch_size, shuffle=True, num_workers=8, prefetch_factor=4)
 eval_dl = DataLoader( datasets["test"], collate_fn=default_data_collator, batch_size=config.batch_size)
 
 accelerator.print(f"Number of embedding parameters: {config.n_params_emb/10**6}M")
@@ -148,10 +152,11 @@ for epoch in range(config.start_epoch,config.epochs):
                         metrics_uniformity[k].update(outputs[k][sample_mask]) #.detach().to('cpu'))
                     else:
                         metrics_uniformity[k].update(outputs[k]) #.detach().to('cpu'))
-                for k in metrics_alignment.keys():
-                    sample_mask = outputs['modality_sample_mask'][k]
-                    metrics_alignment[k].update(outputs[k][sample_mask],#.detach().to('cpu'),
-                                                outputs['fusion'][sample_mask]) #.detach().to('cpu'))
+                if not model_config['eao']:
+                    for k in metrics_alignment.keys():
+                        sample_mask = outputs['modality_sample_mask'][k]
+                        metrics_alignment[k].update(outputs[k][sample_mask],#.detach().to('cpu'),
+                                                    outputs['fusion'][sample_mask]) #.detach().to('cpu'))
 
                 #Step Log
                 losses["total_loss"] += loss.detach().to("cpu")
@@ -161,21 +166,22 @@ for epoch in range(config.start_epoch,config.epochs):
             accelerator.log({'val_epoch_'+k: v/len(eval_dl) for k, v in losses.items() if '|' not in k})
             uniformity = {'val_epoch_uniformity_'+k: v.compute() for k, v in metrics_uniformity.items()}
             accelerator.log(uniformity)
-            alignment = {'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()}
-            accelerator.log(alignment)
             accelerator.log({'val_epoch_unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
-            accelerator.log({'val_epoch_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
             uniformity = {'val_epoch_norm_uniformity_'+k: v.compute(norm=True) for k, v in metrics_uniformity.items()}
             accelerator.log(uniformity)
-            alignment = {'val_epoch_norm_alignment_'+k: v.compute(norm=True) for k, v in metrics_alignment.items()}
-            accelerator.log(alignment)
             accelerator.log({'val_epoch_norm_unformity_avg': torch.mean(torch.stack(list(uniformity.values())))})
-            accelerator.log({'val_epoch_norm_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
-
             for v in metrics_uniformity.values():
                 v.reset()
-            for v in metrics_alignment.values():
-                v.reset()
+            if not model_config['eao']:
+                alignment = {'val_epoch_alignment_'+k: v.compute() for k, v in metrics_alignment.items()}
+                accelerator.log(alignment)
+                accelerator.log({'val_epoch_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
+                alignment = {'val_epoch_norm_alignment_'+k: v.compute(norm=True) for k, v in metrics_alignment.items()}
+                accelerator.log(alignment)
+                accelerator.log({'val_epoch_norm_alignment_avg': torch.mean(torch.stack(list(alignment.values())))})
+
+                for v in metrics_alignment.values():
+                    v.reset()
 logger.info("End training: {}".format(strftime("%Y-%m-%d %H:%M:%S", gmtime())))
 
 accelerator.save_model(model, config.output_dir, safe_serialization=True)
