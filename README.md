@@ -3,7 +3,6 @@
 This repository is the official implementation of Sparsely Multimodal Data Fusion
 [https://arxiv.org/abs/2403.20280](https://arxiv.org/abs/2403.20280)
 ![Model](./figures/figure0.png)
-![MCA](./figures/figure1a-x.png)
 
 
 # Requirements
