@@ -81,8 +81,6 @@ Depending on the alignment in multimodal data and general transformer encoder hy
 
 # Contributing
 
-Anonymized
+Josiah Bjorgaard
 
-
-## NeurIPS 2024 submission
 
