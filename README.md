@@ -1,7 +1,7 @@
 # Code for Sparsely Multimodal Data Fusion
 
 This repository is the official implementation of Sparsely Multimodal Data Fusion
-[https://arxiv.org/abs/2403.20280](https://arxiv.org/abs/2403.20280)
+
 ![Model](./figures/figure0.png)
 
 
@@ -23,8 +23,8 @@ accelerate launch train_accel_gpu.py <config_file_path>
 ```
 
 Preprocessed datasets are available to download with the following links
-* [TCGA Dataset (122MB)](https://mca-paper-neurips-2024.s3.us-west-2.amazonaws.com/tcga_dataset.tar.gz)
-* [CMU Dataset (38.2GB)](https://mca-paper-neurips-2024.s3.us-west-2.amazonaws.com/cmu.dataset.tar.gz)
+* [TCGA Dataset (122MB)](https://mca-paper.s3.us-west-2.amazonaws.com/tcga_dataset.tar.gz)
+* [CMU Dataset (38.2GB)](https://mca-paper.s3.us-west-2.amazonaws.com/cmu.dataset.tar.gz)
 
 # Evaluation
 To evaluate the model, run an inference using pretrained model weights, then train a linear probe to fit a target property.
@@ -47,10 +47,10 @@ The full set of model checkpoints have been made available for models trained us
 
 | Dataset | Model Type | Link                                                                                |
 |---------|-----|-------------------------------------------------------------------------------------|
-| TCGA    | MCA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_01_06_08_03_2024_2.tar.gz) |
-| TCGA    | MMA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_01_03_08_03_2024_1.tar.gz) |
-| CMU     | MCA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_19_23_06_03_2024_3)        |
-| CMU     | MMA | [link (2GB)](s3://mca-paper-neurips-2024/training_output_19_23_06_03_2024_9)        |
+| TCGA    | MCA | [link (2GB)](https://mca-paper.s3.us-west-2.amazonaws.com/training_output_01_06_08_03_2024_2.tar.gz) |
+| TCGA    | MMA | [link (2GB)](https://mca-paper.s3.us-west-2.amazonaws.com/training_output_01_03_08_03_2024_1.tar.gz) |
+| CMU     | MCA | [link (2GB)](https://mca-paper.s3.us-west-2.amazonaws.com/training_output_19_23_06_03_2024_3.tar.gz)        |
+| CMU     | MMA | [link (2GB)](https://mca-paper.s3.us-west-2.amazonaws.com/training_output_19_23_06_03_2024_9.tar.gz)        |
 
 # Training with Other Datasets for Multimodal Fusion Embeddings
 
@@ -81,5 +81,8 @@ Depending on the alignment in multimodal data and general transformer encoder hy
 
 # Contributing
 
-Josiah Bjorgaard
+Anonymized
+
+
+## NeurIPS 2024 submission
 
